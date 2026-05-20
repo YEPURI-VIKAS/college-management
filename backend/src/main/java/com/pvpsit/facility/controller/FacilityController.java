@@ -90,7 +90,7 @@ public class FacilityController {
         return false;
     }
 
-    private void updateFacilityStatuses() {
+    private synchronized void updateFacilityStatuses() {
         List<Facility> facilities = facilityRepository.findAll();
         List<Booking> bookings = bookingRepository.findAll();
         System.out.println("DEBUG: updateFacilityStatuses: Found " + facilities.size() + " facilities and " + bookings.size() + " bookings.");

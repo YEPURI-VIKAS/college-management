@@ -35,10 +35,22 @@ public class DataInitializer implements CommandLineRunner {
     public void run(String... args) throws Exception {
         // Initialize Admin and Faculty Users
         if (userRepository.count() == 0) {
-            User admin = new User(
-                "admin@pvpsit.edu.in",
+            User admin1 = new User(
+                "admin1@pvpsit.edu.in",
                 passwordEncoder.encode("admin123"),
-                "Administrator",
+                "Admin One",
+                "Admin"
+            );
+            User admin2 = new User(
+                "admin2@pvpsit.edu.in",
+                passwordEncoder.encode("admin123"),
+                "Admin Two",
+                "Admin"
+            );
+            User admin3 = new User(
+                "admin3@pvpsit.edu.in",
+                passwordEncoder.encode("admin123"),
+                "Admin Three",
                 "Admin"
             );
             User faculty = new User(
@@ -47,8 +59,7 @@ public class DataInitializer implements CommandLineRunner {
                 "Dr. Prasad",
                 "Faculty / Staff"
             );
-            userRepository.save(admin);
-            userRepository.save(faculty);
+            userRepository.saveAll(Arrays.asList(admin1, admin2, admin3, faculty));
         }
 
         // Initialize Facilities
@@ -89,6 +100,24 @@ public class DataInitializer implements CommandLineRunner {
                 "https://images.unsplash.com/photo-1581092921461-eab62e97a780",
                 Arrays.asList("Computers", "Air Conditioning", "Projector")
             ));
+        }
+
+        // Initialize LH 101-110, 201-210, 301-310, 401-410
+        for (int floor = 1; floor <= 4; floor++) {
+            for (int room = 1; room <= 10; room++) {
+                String id = String.format("LH-%d%02d", floor, room);
+                if (!facilityRepository.existsById(id)) {
+                    facilityRepository.save(new Facility(
+                        id,
+                        "Lecture Hall " + id.substring(3),
+                        "Classroom",
+                        60,
+                        "Available",
+                        "https://images.unsplash.com/photo-1541339907198-e08756dedf3f",
+                        Arrays.asList("Projector", "Whiteboard")
+                    ));
+                }
+            }
         }
 
         // Initialize Assets

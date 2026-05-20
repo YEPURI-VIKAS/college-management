@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, Filter } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { Plus, Search, Filter, Download } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -17,10 +18,12 @@ type Ticket = {
 const Maintenance = () => {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const { user } = useAuth();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const canAddRequest = user?.user_metadata?.role === 'Admin' || user?.user_metadata?.role === 'Faculty / Staff';
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [priorityFilter, setPriorityFilter] = useState(location.state?.priorityFilter || 'All');
 
   useEffect(() => {
     fetchTickets();
@@ -94,22 +97,44 @@ const Maintenance = () => {
     }
   };
 
+  const handleExport = () => {
+    const headers = ['Ticket ID', 'Issue', 'Location', 'Priority', 'Status', 'Date', 'Assigned To'];
+    const rows = tickets.map(t => `"${t.id}","${t.title}","${t.location}","${t.priority}","${t.status}","${t.date}","${t.assignedTo}"`).join('\n');
+    const csvContent = "data:text/csv;charset=utf-8," + headers.join(',') + '\n' + rows;
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `maintenance_report_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-end mb-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Maintenance</h1>
           <p className="text-gray-500 mt-1">Track and manage facility repair requests.</p>
         </div>
-        {canAddRequest && (
+        <div className="flex gap-3 w-full sm:w-auto">
           <button 
-            onClick={() => setIsModalOpen(true)}
-            className="bg-[#1E3A8A] text-white px-4 py-2 rounded-xl font-medium hover:bg-[#1E40AF] transition-colors flex items-center shadow-lg shadow-blue-900/20"
+            onClick={handleExport}
+            className="bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-xl font-medium hover:bg-gray-50 transition-colors flex items-center shadow-sm flex-1 sm:flex-none justify-center"
           >
-            <Plus size={20} className="mr-2" />
-            New Request
+            <Download size={20} className="mr-2" />
+            Export CSV
           </button>
-        )}
+          {canAddRequest && (
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="bg-[#1E3A8A] text-white px-4 py-2 rounded-xl font-medium hover:bg-[#1E40AF] transition-colors flex items-center shadow-lg shadow-blue-900/20 flex-1 sm:flex-none justify-center"
+            >
+              <Plus size={20} className="mr-2" />
+              New Request
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -138,6 +163,19 @@ const Maintenance = () => {
                 <option value="Completed">Completed</option>
               </select>
             </div>
+             <div className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 transition-colors">
+              <Filter size={18} />
+              <select 
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="bg-transparent border-none outline-none cursor-pointer text-sm"
+              >
+                <option value="All">Priority: All</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -164,6 +202,7 @@ const Maintenance = () => {
                 {tickets
                   .filter(t => 
                     (statusFilter === 'All' || t.status === statusFilter) &&
+                    (priorityFilter === 'All' || t.priority === priorityFilter) &&
                     (t.id.toLowerCase().includes(searchQuery.toLowerCase()) || 
                      t.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
                      t.location.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -254,10 +293,12 @@ const Maintenance = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">Assign To (Optional)</label>
             <select value={newTicket.assignedTo} onChange={e => setNewTicket({...newTicket, assignedTo: e.target.value})} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-[#1E3A8A] outline-none">
               <option>Unassigned</option>
-              <option>IT Dept</option>
-              <option>Ramesh K.</option>
-              <option>Suresh V.</option>
-              <option>Electrical Dept</option>
+              <option>CSE Dept</option>
+              <option>ECE Dept</option>
+              <option>Mech Dept</option>
+              <option>CSM Dept</option>
+              <option>CSD Dept</option>
+              <option>Civil Dept</option>
             </select>
           </div>
 

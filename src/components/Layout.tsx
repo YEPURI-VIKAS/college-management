@@ -202,12 +202,48 @@ const Header = () => {
     )
   };
 
+  const notificationKey = `pvpsit_notifications_${user?.email || 'guest'}`;
+
+  // Initialize notifications from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem(notificationKey);
+    if (saved) {
+      try {
+        setNotifications(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse notifications', e);
+      }
+    } else {
+      setNotifications([]);
+    }
+  }, [notificationKey]);
+
+  useEffect(() => {
+    const handleSync = () => {
+      const saved = localStorage.getItem(notificationKey);
+      if (saved) {
+        try {
+          setNotifications(JSON.parse(saved));
+        } catch (e) {}
+      } else {
+        setNotifications([]);
+      }
+    };
+    window.addEventListener('pvpsit_notifications_updated', handleSync);
+    return () => window.removeEventListener('pvpsit_notifications_updated', handleSync);
+  }, [notificationKey]);
+
   useEffect(() => {
     const addNotification = (title: string, desc: string) => {
-      setNotifications(prev => [
-        { id: Date.now(), title, desc, time: 'Just now', unread: true },
-        ...prev
-      ]);
+      setNotifications(prev => {
+        const newNotifs = [
+          { id: Date.now(), title, desc, time: 'Just now', unread: true },
+          ...prev
+        ];
+        localStorage.setItem(notificationKey, JSON.stringify(newNotifs));
+        window.dispatchEvent(new Event('pvpsit_notifications_updated'));
+        return newNotifs;
+      });
       setToast({ title, desc });
       setTimeout(() => {
         setToast(null);
@@ -236,17 +272,23 @@ const Header = () => {
     return () => {
       ws.close();
     };
-  }, []);
+  }, [notificationKey]);
 
   const handleMarkAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, unread: false })));
+    const updated = notifications.map(n => ({ ...n, unread: false }));
+    setNotifications(updated);
+    localStorage.setItem(`pvpsit_notifications_${user?.email || 'guest'}`, JSON.stringify(updated));
+    window.dispatchEvent(new Event('pvpsit_notifications_updated'));
   };
 
   const handleNotificationClick = (id: number) => {
     const clicked = notifications.find(n => n.id === id);
-    setNotifications(notifications.map(n => 
+    const updated = notifications.map(n => 
       n.id === id ? { ...n, unread: false } : n
-    ));
+    );
+    setNotifications(updated);
+    localStorage.setItem(`pvpsit_notifications_${user?.email || 'guest'}`, JSON.stringify(updated));
+    window.dispatchEvent(new Event('pvpsit_notifications_updated'));
     setShowNotifications(false);
     if (clicked) {
       const t = clicked.title.toLowerCase();
@@ -254,11 +296,26 @@ const Header = () => {
         navigate('/bookings', { state: { tab: 'pending' } });
       } else if (t.includes('maintenance') || t.includes('ticket') || t.includes('repaired')) {
         navigate('/maintenance');
-      } else if (t.includes('asset') || t.includes('inventory')) {
+      } else if (t.includes('asset') || t.includes('inventory') || t.includes('removed') || t.includes('deleted')) {
         navigate('/assets');
       } else if (t.includes('facility') || t.includes('classroom')) {
         navigate('/facilities');
       }
+    }
+  };
+
+  const handleToastClick = () => {
+    if (!toast) return;
+    const t = toast.title.toLowerCase();
+    setToast(null);
+    if (t.includes('booking') || t.includes('booked') || t.includes('approval') || t.includes('approved') || t.includes('confirmed')) {
+      navigate('/bookings');
+    } else if (t.includes('maintenance') || t.includes('ticket') || t.includes('repaired') || t.includes('status updated')) {
+      navigate('/maintenance');
+    } else if (t.includes('asset') || t.includes('inventory') || t.includes('removed') || t.includes('deleted')) {
+      navigate('/assets');
+    } else if (t.includes('facility') || t.includes('classroom')) {
+      navigate('/facilities');
     }
   };
 
@@ -269,13 +326,24 @@ const Header = () => {
   return (
     <>
       {toast && (
-        <div className="fixed top-6 right-6 bg-white text-gray-900 px-5 py-4 rounded-2xl border border-gray-100 shadow-2xl animate-in slide-in-from-right fade-in duration-300 flex items-start z-50 max-w-sm">
+        <div 
+          onClick={handleToastClick}
+          className="fixed top-6 right-6 bg-white text-gray-900 px-5 py-4 rounded-2xl border border-gray-100 hover:border-blue-300 shadow-2xl animate-in slide-in-from-right fade-in duration-300 flex items-start z-50 max-w-sm cursor-pointer transition-all hover:scale-[1.02]"
+        >
           <div className="w-2.5 h-2.5 bg-blue-600 rounded-full mr-3.5 mt-1.5 shrink-0 animate-ping"></div>
           <div className="flex-1">
             <h4 className="font-bold text-sm text-gray-900">{toast.title}</h4>
             <p className="text-xs text-gray-500 mt-1 leading-relaxed">{toast.desc}</p>
           </div>
-          <button onClick={() => setToast(null)} className="ml-4 text-gray-400 hover:text-gray-600 font-semibold text-sm">&times;</button>
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              setToast(null);
+            }} 
+            className="ml-4 text-gray-400 hover:text-gray-600 font-semibold text-sm cursor-pointer"
+          >
+            &times;
+          </button>
         </div>
       )}
       <header className="h-20 bg-white/80 backdrop-blur-md border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-10">
@@ -468,12 +536,23 @@ const Header = () => {
                 <button 
                   onClick={() => {
                     setShowProfileMenu(false);
-                    alert("Profile settings are under development!");
+                    navigate('/profile');
                   }}
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-[#1E3A8A] rounded-lg transition-colors"
                 >
                   Profile Settings
                 </button>
+                {user?.user_metadata?.role === 'Admin' && (
+                  <button 
+                    onClick={() => {
+                      setShowProfileMenu(false);
+                      navigate('/users');
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-[#1E3A8A] rounded-lg transition-colors"
+                  >
+                    User Management
+                  </button>
+                )}
                 <button 
                   onClick={async () => {
                     setShowProfileMenu(false);

@@ -6,6 +6,8 @@ import Maintenance from './pages/Maintenance';
 import Assets from './pages/Assets';
 import Bookings from './pages/Bookings';
 import Notifications from './pages/Notifications';
+import Profile from './pages/Profile';
+import UserManagement from './pages/UserManagement';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -28,6 +30,8 @@ function App() {
             <Route path="assets" element={<Assets />} />
             <Route path="bookings" element={<Bookings />} />
             <Route path="notifications" element={<Notifications />} />
+            <Route path="profile" element={<Profile />} />
+            <Route path="users" element={<UserManagement />} />
           </Route>
         </Route>
       </Routes>

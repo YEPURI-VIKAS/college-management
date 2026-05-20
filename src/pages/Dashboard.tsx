@@ -4,6 +4,20 @@ import { Users, DoorOpen, Wrench, AlertTriangle, ArrowUpRight, ArrowDownRight, C
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { api } from '../lib/api';
 
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-white/90 backdrop-blur-md border border-gray-150 p-4 rounded-xl shadow-xl animate-in fade-in duration-200">
+        <p className="font-heading font-bold text-gray-900 text-sm">{label}</p>
+        <p className="font-sans font-semibold text-blue-600 text-xs mt-1">
+          Usage: <span className="text-gray-900">{payload[0].value} mins</span>
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const [isGenerating, setIsGenerating] = useState(false);
@@ -15,7 +29,7 @@ const Dashboard = () => {
     
     setTimeout(() => {
       // Generate CSV content
-      const headers = ['Metric', 'Value', 'Change'];
+      const headers = ['Metric', 'Value', 'Status / Detail'];
       const statsRows = stats.map(s => `"${s.title}","${s.value}","${s.change}"`).join('\n');
       
       const activityHeaders = ['ID', 'Activity', 'Time', 'Type'];
@@ -35,247 +49,273 @@ const Dashboard = () => {
 
       setIsGenerating(false);
       setReportGenerated(true);
-      // Hide success message after 3 seconds
       setTimeout(() => setReportGenerated(false), 3000);
     }, 1000);
   };
 
   const [stats, setStats] = useState([
-    { title: 'Available Classrooms', value: '42', change: '+12%', trend: 'up', icon: DoorOpen, color: 'bg-blue-500' },
-    { title: 'Active Maintenance', value: '18', change: '-5%', trend: 'down', icon: Wrench, color: 'bg-amber-500' },
-    { title: 'Total Assets', value: '1,240', change: '+2%', trend: 'up', icon: Users, color: 'bg-green-500' },
-    { title: 'Critical Issues', value: '3', change: '0%', trend: 'neutral', icon: AlertTriangle, color: 'bg-red-500' },
+    { title: 'Available Classrooms', value: '--', change: 'Calculating...', trend: 'neutral', icon: DoorOpen, color: 'from-blue-500 to-indigo-600', path: '/facilities' },
+    { title: 'Active Maintenance', value: '--', change: 'Calculating...', trend: 'neutral', icon: Wrench, color: 'from-amber-500 to-orange-600', path: '/maintenance' },
+    { title: 'Total Assets', value: '--', change: 'Calculating...', trend: 'neutral', icon: Users, color: 'from-emerald-500 to-teal-600', path: '/assets' },
+    { title: 'Critical Issues', value: '--', change: 'Calculating...', trend: 'neutral', icon: AlertTriangle, color: 'from-rose-500 to-red-600', path: '/maintenance' },
   ]);
 
   const [activityData, setActivityData] = useState([
-    { name: 'Mon', usage: 4000 },
-    { name: 'Tue', usage: 3000 },
-    { name: 'Wed', usage: 2000 },
-    { name: 'Thu', usage: 2780 },
-    { name: 'Fri', usage: 1890 },
-    { name: 'Sat', usage: 2390 },
-    { name: 'Sun', usage: 3490 },
+    { name: 'Mon', usage: 0 },
+    { name: 'Tue', usage: 0 },
+    { name: 'Wed', usage: 0 },
+    { name: 'Thu', usage: 0 },
+    { name: 'Fri', usage: 0 },
+    { name: 'Sat', usage: 0 },
+    { name: 'Sun', usage: 0 },
   ]);
 
-  const [recentActivities, setRecentActivities] = useState<any[]>([
-    { id: 1, text: 'Projector fixed in Room 204', time: '10 mins ago', type: 'maintenance' },
-    { id: 2, text: 'Seminar Hall booked for Guest Lecture', time: '1 hour ago', type: 'booking' },
-    { id: 3, text: 'New AC unit installed in CSE Lab 1', time: '3 hours ago', type: 'asset' },
-    { id: 4, text: 'Routine inspection completed in Main Block', time: '5 hours ago', type: 'maintenance' },
-  ]);
-
+  const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [selectedWeek, setSelectedWeek] = useState<'This Week' | 'Last Week'>('This Week');
 
-  useEffect(() => {
-    const fetchDashboardStats = async () => {
-      try {
-        const [facilities, tickets, assets, bookings] = await Promise.all([
-          api.get<any[]>('/facilities'),
-          api.get<any[]>('/tickets'),
-          api.get<any[]>('/assets'),
-          api.get<any[]>('/bookings')
-        ]);
+  const fetchDashboardStats = async () => {
+    try {
+      const [facilities, tickets, assets, bookings] = await Promise.all([
+        api.get<any[]>('/facilities'),
+        api.get<any[]>('/tickets'),
+        api.get<any[]>('/assets'),
+        api.get<any[]>('/bookings')
+      ]);
 
-        const availableClassrooms = facilities.filter(f => f.type === 'Classroom' && f.status === 'Available').length;
-        const activeMaintenance = tickets.filter(t => t.status !== 'Completed' && t.status !== 'Resolved').length;
-        const totalAssets = assets.length;
-        const criticalIssues = tickets.filter(t => t.priority === 'High' && t.status !== 'Completed' && t.status !== 'Resolved').length;
+      // 1. Available Classrooms Calculation
+      const classrooms = facilities.filter(f => f.type === 'Classroom');
+      const availableClassrooms = classrooms.filter(f => f.status === 'Available').length;
+      const totalClassrooms = classrooms.length;
+      const classroomRatio = totalClassrooms > 0 ? Math.round((availableClassrooms / totalClassrooms) * 100) : 0;
 
-        setStats([
-          { 
-            title: 'Available Classrooms', 
-            value: availableClassrooms.toString(), 
-            change: availableClassrooms > 0 ? '+12%' : '0%', 
-            trend: availableClassrooms > 0 ? 'up' : 'neutral', 
-            icon: DoorOpen, 
-            color: 'bg-blue-500' 
-          },
-          { 
-            title: 'Active Maintenance', 
-            value: activeMaintenance.toString(), 
-            change: '-5%', 
-            trend: 'down', 
-            icon: Wrench, 
-            color: 'bg-amber-500' 
-          },
-          { 
-            title: 'Total Assets', 
-            value: totalAssets.toString(), 
-            change: '+2%', 
-            trend: 'up', 
-            icon: Users, 
-            color: 'bg-green-500' 
-          },
-          { 
-            title: 'Critical Issues', 
-            value: criticalIssues.toString(), 
-            change: '0%', 
-            trend: 'neutral', 
-            icon: AlertTriangle, 
-            color: 'bg-red-500' 
-          },
-        ]);
+      // 2. Active Maintenance Calculation
+      const activeMaintenance = tickets.filter(t => t.status !== 'Completed' && t.status !== 'Resolved').length;
+      const totalTickets = tickets.length;
+      const completedTickets = tickets.filter(t => t.status === 'Completed' || t.status === 'Resolved').length;
+      const resolutionRate = totalTickets > 0 ? Math.round((completedTickets / totalTickets) * 100) : 0;
 
-        // Weekly usage calculation
-        const baseUsageThisWeek: Record<number, number> = {
-          1: 3000, // Mon
-          2: 2400, // Tue
-          3: 2000, // Wed
-          4: 2600, // Thu
-          5: 1800, // Fri
-          6: 800,  // Sat
-          0: 400,  // Sun
-        };
+      // 3. Total Assets Calculation
+      const totalAssets = assets.length;
+      const activeAssets = assets.filter(a => a.status === 'Active').length;
+      const inactiveAssets = totalAssets - activeAssets;
 
-        const baseUsageLastWeek: Record<number, number> = {
-          1: 2800, // Mon
-          2: 2200, // Tue
-          3: 2100, // Wed
-          4: 2400, // Thu
-          5: 1900, // Fri
-          6: 600,  // Sat
-          0: 300,  // Sun
-        };
+      // 4. Critical Issues Calculation
+      const criticalIssues = tickets.filter(t => t.priority === 'High' && t.status !== 'Completed' && t.status !== 'Resolved').length;
 
-        const currentBaseline = selectedWeek === 'This Week' ? baseUsageThisWeek : baseUsageLastWeek;
+      setStats([
+        { 
+          title: 'Available Classrooms', 
+          value: `${availableClassrooms} / ${totalClassrooms}`, 
+          change: `${classroomRatio}% of Rooms Ready`, 
+          trend: classroomRatio >= 80 ? 'up' : classroomRatio >= 50 ? 'neutral' : 'down', 
+          icon: DoorOpen, 
+          color: 'from-blue-500 to-indigo-600',
+          path: '/facilities'
+        },
+        { 
+          title: 'Active Maintenance', 
+          value: activeMaintenance.toString(), 
+          change: `${resolutionRate}% Resolution Rate`, 
+          trend: activeMaintenance === 0 ? 'up' : 'down', 
+          icon: Wrench, 
+          color: 'from-amber-500 to-orange-600',
+          path: '/maintenance'
+        },
+        { 
+          title: 'Total Assets', 
+          value: totalAssets.toString(), 
+          change: `${activeAssets} Active / ${inactiveAssets} In Repair`, 
+          trend: inactiveAssets === 0 ? 'up' : 'down', 
+          icon: Users, 
+          color: 'from-emerald-500 to-teal-600',
+          path: '/assets'
+        },
+        { 
+          title: 'Critical Issues', 
+          value: criticalIssues.toString(), 
+          change: criticalIssues > 0 ? 'Action Required' : 'All Clear', 
+          trend: criticalIssues > 0 ? 'down' : 'up', 
+          icon: AlertTriangle, 
+          color: 'from-rose-500 to-red-600',
+          path: '/maintenance'
+        },
+      ]);
 
-        // Calculate start and end date for the selected week
-        const todayDate = new Date();
-        const startOfCurrentWeek = new Date(todayDate);
-        const day = startOfCurrentWeek.getDay();
-        const diff = startOfCurrentWeek.getDate() - day + (day === 0 ? -6 : 1);
-        startOfCurrentWeek.setDate(diff);
-        startOfCurrentWeek.setHours(0, 0, 0, 0);
+      // Weekly usage calculation
+      const baseUsageThisWeek: Record<number, number> = {
+        1: 3000, // Mon
+        2: 2400, // Tue
+        3: 2000, // Wed
+        4: 2600, // Thu
+        5: 1800, // Fri
+        6: 800,  // Sat
+        0: 400,  // Sun
+      };
 
-        if (selectedWeek === 'Last Week') {
-          startOfCurrentWeek.setDate(startOfCurrentWeek.getDate() - 7);
-        }
+      const baseUsageLastWeek: Record<number, number> = {
+        1: 2800, // Mon
+        2: 2200, // Tue
+        3: 2100, // Wed
+        4: 2400, // Thu
+        5: 1900, // Fri
+        6: 600,  // Sat
+        0: 300,  // Sun
+      };
 
-        const startMs = startOfCurrentWeek.getTime();
-        const endMs = startMs + 7 * 24 * 60 * 60 * 1000;
+      const currentBaseline = selectedWeek === 'This Week' ? baseUsageThisWeek : baseUsageLastWeek;
 
-        // Sum booking minutes per day of the week
-        const dailyBookingMinutes: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 0: 0 };
+      // Calculate start and end date for the selected week
+      const todayDate = new Date();
+      const startOfCurrentWeek = new Date(todayDate);
+      const day = startOfCurrentWeek.getDay();
+      const diff = startOfCurrentWeek.getDate() - day + (day === 0 ? -6 : 1);
+      startOfCurrentWeek.setDate(diff);
+      startOfCurrentWeek.setHours(0, 0, 0, 0);
 
-        bookings.forEach(booking => {
-          if (!booking.time) return;
-          const match = booking.time.match(/^(\d{4}-\d{2}-\d{2})/);
-          if (match) {
-            const bookingDateStr = match[1];
-            const bookingDate = new Date(bookingDateStr);
-            const bookingMs = bookingDate.getTime();
-            if (bookingMs >= startMs && bookingMs < endMs) {
-              const dayOfWeek = bookingDate.getDay(); // 0-6
+      if (selectedWeek === 'Last Week') {
+        startOfCurrentWeek.setDate(startOfCurrentWeek.getDate() - 7);
+      }
+
+      const startMs = startOfCurrentWeek.getTime();
+      const endMs = startMs + 7 * 24 * 60 * 60 * 1000;
+
+      // Sum booking minutes per day of the week
+      const dailyBookingMinutes: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 0: 0 };
+
+      bookings.forEach(booking => {
+        if (!booking.time) return;
+        const match = booking.time.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (match) {
+          const bookingDateStr = match[1];
+          const bookingDate = new Date(bookingDateStr);
+          const bookingMs = bookingDate.getTime();
+          if (bookingMs >= startMs && bookingMs < endMs) {
+            const dayOfWeek = bookingDate.getDay();
+            
+            let duration = 60; // 1 hour default
+            const rangeMatch = booking.time.match(/(\d{2}):(\d{2})\s*([AP]M)\s*-\s*(\d{2}):(\d{2})\s*([AP]M)/i);
+            if (rangeMatch) {
+              let sh = parseInt(rangeMatch[1]);
+              const sm = parseInt(rangeMatch[2]);
+              const sampm = rangeMatch[3].toUpperCase();
+              let eh = parseInt(rangeMatch[4]);
+              const em = parseInt(rangeMatch[5]);
+              const eampm = rangeMatch[6].toUpperCase();
               
-              // Calculate duration
-              let duration = 60; // 1 hour default
-              const rangeMatch = booking.time.match(/(\d{2}):(\d{2})\s*([AP]M)\s*-\s*(\d{2}):(\d{2})\s*([AP]M)/i);
-              if (rangeMatch) {
-                let sh = parseInt(rangeMatch[1]);
-                const sm = parseInt(rangeMatch[2]);
-                const sampm = rangeMatch[3].toUpperCase();
-                let eh = parseInt(rangeMatch[4]);
-                const em = parseInt(rangeMatch[5]);
-                const eampm = rangeMatch[6].toUpperCase();
-                
-                if (sampm === 'PM' && sh < 12) sh += 12;
-                if (sampm === 'AM' && sh === 12) sh = 0;
-                if (eampm === 'PM' && eh < 12) eh += 12;
-                if (eampm === 'AM' && eh === 12) eh = 0;
-                
-                const startMin = sh * 60 + sm;
-                const endMin = eh * 60 + em;
-                duration = Math.max(30, endMin - startMin);
-              }
-              dailyBookingMinutes[dayOfWeek] = (dailyBookingMinutes[dayOfWeek] || 0) + duration;
+              if (sampm === 'PM' && sh < 12) sh += 12;
+              if (sampm === 'AM' && sh === 12) sh = 0;
+              if (eampm === 'PM' && eh < 12) eh += 12;
+              if (eampm === 'AM' && eh === 12) eh = 0;
+              
+              const startMin = sh * 60 + sm;
+              const endMin = eh * 60 + em;
+              duration = Math.max(30, endMin - startMin);
             }
+            dailyBookingMinutes[dayOfWeek] = (dailyBookingMinutes[dayOfWeek] || 0) + duration;
           }
+        }
+      });
+
+      const newChartData = [
+        { name: 'Mon', usage: currentBaseline[1] + (dailyBookingMinutes[1] || 0) },
+        { name: 'Tue', usage: currentBaseline[2] + (dailyBookingMinutes[2] || 0) },
+        { name: 'Wed', usage: currentBaseline[3] + (dailyBookingMinutes[3] || 0) },
+        { name: 'Thu', usage: currentBaseline[4] + (dailyBookingMinutes[4] || 0) },
+        { name: 'Fri', usage: currentBaseline[5] + (dailyBookingMinutes[5] || 0) },
+        { name: 'Sat', usage: currentBaseline[6] + (dailyBookingMinutes[6] || 0) },
+        { name: 'Sun', usage: currentBaseline[0] + (dailyBookingMinutes[0] || 0) },
+      ];
+
+      setActivityData(newChartData);
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+    }
+  };
+
+  const loadNotifications = () => {
+    const saved = localStorage.getItem('pvpsit_notifications');
+    let activities = [];
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        
+        // Remove duplicates to present correct data
+        const seen = new Set();
+        const uniqueParsed = parsed.filter((item: any) => {
+          const key = `${item.title.trim()}-${item.desc.trim()}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
         });
 
-        const newChartData = [
-          { name: 'Mon', usage: currentBaseline[1] + (dailyBookingMinutes[1] || 0) },
-          { name: 'Tue', usage: currentBaseline[2] + (dailyBookingMinutes[2] || 0) },
-          { name: 'Wed', usage: currentBaseline[3] + (dailyBookingMinutes[3] || 0) },
-          { name: 'Thu', usage: currentBaseline[4] + (dailyBookingMinutes[4] || 0) },
-          { name: 'Fri', usage: currentBaseline[5] + (dailyBookingMinutes[5] || 0) },
-          { name: 'Sat', usage: currentBaseline[6] + (dailyBookingMinutes[6] || 0) },
-          { name: 'Sun', usage: currentBaseline[0] + (dailyBookingMinutes[0] || 0) },
-        ];
-
-        setActivityData(newChartData);
-      } catch (error) {
-        console.error('Error fetching dashboard stats:', error);
+        activities = uniqueParsed.map((item: any) => {
+          let type = 'system';
+          const title = item.title.toLowerCase();
+          if (title.includes('maintenance') || title.includes('ticket')) {
+            type = 'maintenance';
+          } else if (title.includes('booking') || title.includes('approved') || title.includes('confirmed')) {
+            type = 'booking';
+          } else if (title.includes('asset') || title.includes('projector') || title.includes('ac')) {
+            type = 'asset';
+          }
+          return {
+            id: item.id,
+            text: `${item.title}: ${item.desc}`,
+            time: item.time,
+            type: type
+          };
+        });
+      } catch (e) {
+        console.error(e);
       }
-    };
+    }
+    
+    if (activities.length === 0) {
+      activities = [
+        { id: 1, text: 'Projector fixed in Room 204', time: '10 mins ago', type: 'maintenance' },
+        { id: 2, text: 'Seminar Hall booked for Guest Lecture', time: '1 hour ago', type: 'booking' },
+        { id: 3, text: 'New AC unit installed in CSE Lab 1', time: '3 hours ago', type: 'asset' },
+        { id: 4, text: 'Routine inspection completed in Main Block', time: '5 hours ago', type: 'maintenance' },
+      ];
+    }
+    setRecentActivities(activities.slice(0, 4));
+  };
 
-    const loadNotifications = () => {
-      const saved = localStorage.getItem('pvpsit_notifications');
-      let activities = [];
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          activities = parsed.map((item: any) => {
-            let type = 'system';
-            const title = item.title.toLowerCase();
-            if (title.includes('maintenance') || title.includes('ticket')) {
-              type = 'maintenance';
-            } else if (title.includes('booking') || title.includes('approved') || title.includes('confirmed')) {
-              type = 'booking';
-            } else if (title.includes('asset') || title.includes('projector') || title.includes('ac')) {
-              type = 'asset';
-            }
-            return {
-              id: item.id,
-              text: `${item.title}: ${item.desc}`,
-              time: item.time,
-              type: type
-            };
-          });
-        } catch (e) {
-          console.error(e);
-        }
-      }
-      
-      if (activities.length === 0) {
-        activities = [
-          { id: 1, text: 'Projector fixed in Room 204', time: '10 mins ago', type: 'maintenance' },
-          { id: 2, text: 'Seminar Hall booked for Guest Lecture', time: '1 hour ago', type: 'booking' },
-          { id: 3, text: 'New AC unit installed in CSE Lab 1', time: '3 hours ago', type: 'asset' },
-          { id: 4, text: 'Routine inspection completed in Main Block', time: '5 hours ago', type: 'maintenance' },
-        ];
-      }
-      setRecentActivities(activities.slice(0, 4));
-    };
-
+  useEffect(() => {
+    // Initial fetch
     fetchDashboardStats();
     loadNotifications();
 
+    // Listen to real-time updates triggered by WebSocket sync
     const handleSync = () => {
+      fetchDashboardStats();
       loadNotifications();
     };
+
     window.addEventListener('pvpsit_notifications_updated', handleSync);
     return () => window.removeEventListener('pvpsit_notifications_updated', handleSync);
   }, [selectedWeek]);
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-8 relative">
       {/* Toast Notification */}
       {reportGenerated && (
-        <div className="absolute top-0 right-0 bg-green-50 text-green-700 px-4 py-3 rounded-xl border border-green-200 shadow-lg animate-in slide-in-from-top-4 fade-in duration-300 flex items-center z-50">
-          <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
-          <span className="font-medium text-sm">Monthly Report generated successfully!</span>
+        <div className="fixed top-24 right-8 bg-green-500 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center z-50 animate-in slide-in-from-top-4 fade-in duration-300">
+          <div className="w-2 h-2 bg-white rounded-full mr-3 animate-ping"></div>
+          <span className="font-semibold text-sm">Monthly Report generated successfully!</span>
         </div>
       )}
 
-      <div className="flex justify-between items-end mb-8">
+      {/* Header Panel with soft glow */}
+      <div className="flex justify-between items-end mb-4 p-6 bg-white/40 backdrop-blur-md border border-white/40 rounded-3xl shadow-sm">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-500 mt-1">Welcome back. Here's what's happening on campus today.</p>
+          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight font-heading">Dashboard</h1>
+          <p className="text-gray-500 mt-1.5 font-medium">Welcome back. Here's what's happening on campus today.</p>
         </div>
         <button 
           onClick={handleGenerateReport}
           disabled={isGenerating}
-          className="bg-[#1E3A8A] text-white px-4 py-2 rounded-xl font-medium hover:bg-[#1E40AF] transition-all shadow-lg shadow-blue-900/20 disabled:opacity-70 disabled:cursor-not-allowed flex items-center min-w-[150px] justify-center"
+          className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white px-5 py-2.5 rounded-2xl font-bold hover:shadow-lg hover:shadow-blue-900/30 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center min-w-[150px] justify-center cursor-pointer shadow-md"
         >
           {isGenerating ? (
             <>
@@ -288,88 +328,134 @@ const Dashboard = () => {
         </button>
       </div>
 
-      {/* Stats Grid */}
+      {/* Stats Grid with dynamic glowing designs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => (
-          <div key={index} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-lift">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-medium text-gray-500 mb-1">{stat.title}</p>
-                <h3 className="text-3xl font-bold text-gray-900">{stat.value}</h3>
+        {stats.map((stat, index) => {
+          const isCriticalActive = stat.title === 'Critical Issues' && stat.value !== '0';
+          return (
+            <div 
+              key={index} 
+              onClick={() => {
+                if (stat.title === 'Critical Issues') {
+                  navigate(stat.path, { state: { priorityFilter: 'High' } });
+                } else {
+                  navigate(stat.path);
+                }
+              }}
+              className={`bg-white p-6 rounded-3xl shadow-sm border border-gray-100/80 hover:border-blue-200/50 hover:shadow-xl transition-all duration-300 ease-out hover-lift group relative overflow-hidden cursor-pointer`}
+            >
+              {/* Subtle background card glow */}
+              <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-full group-hover:scale-125 transition-transform duration-500 -z-10"></div>
+              
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 font-heading">{stat.title}</p>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-3xl font-extrabold text-gray-900 tracking-tight font-heading">{stat.value}</h3>
+                    {isCriticalActive && (
+                      <span className="flex h-3.5 w-3.5 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-600"></span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className={`bg-gradient-to-br ${stat.color} p-3 rounded-2xl text-white shadow-md transform group-hover:scale-110 transition-transform duration-300`}>
+                  <stat.icon size={22} className="group-hover:rotate-6 transition-transform duration-300" />
+                </div>
               </div>
-              <div className={`${stat.color} p-3 rounded-xl text-white shadow-md`}>
-                <stat.icon size={24} />
+              
+              <div className="mt-5 pt-3 border-t border-gray-50 flex items-center text-xs font-semibold text-gray-500">
+                <span className={`flex items-center font-bold mr-1.5 ${
+                  stat.trend === 'up' ? 'text-emerald-600' : stat.trend === 'down' ? 'text-red-500' : 'text-gray-500'
+                }`}>
+                  {stat.trend === 'up' ? <ArrowUpRight size={14} className="mr-0.5" /> : stat.trend === 'down' ? <ArrowDownRight size={14} className="mr-0.5" /> : null}
+                  {stat.change}
+                </span>
+                <span className="text-gray-400">vs last week</span>
               </div>
             </div>
-            <div className="mt-4 flex items-center text-sm">
-              <span className={`flex items-center font-medium ${
-                stat.trend === 'up' ? 'text-green-600' : stat.trend === 'down' ? 'text-red-600' : 'text-gray-600'
-              }`}>
-                {stat.trend === 'up' ? <ArrowUpRight size={16} className="mr-1" /> : stat.trend === 'down' ? <ArrowDownRight size={16} className="mr-1" /> : null}
-                {stat.change}
-              </span>
-              <span className="text-gray-400 ml-2">vs last week</span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Chart */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 lg:col-span-2">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-lg font-bold text-gray-900">Facility Usage (Weekly)</h2>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Chart with premium colors */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 lg:col-span-2 hover:shadow-md transition-shadow duration-300">
+          <div className="flex justify-between items-center mb-6 border-b border-gray-50 pb-4">
+            <h2 className="text-lg font-bold text-gray-900 tracking-tight font-heading">Facility Usage (Weekly)</h2>
             <select 
               value={selectedWeek}
               onChange={(e) => setSelectedWeek(e.target.value as 'This Week' | 'Last Week')}
-              className="bg-gray-50 border-none text-sm font-medium rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-[#1E3A8A]/20 text-gray-600"
+              className="bg-gray-50 border border-gray-150 text-xs font-bold rounded-xl px-3.5 py-2 outline-none focus:ring-2 focus:ring-blue-700/20 text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
             >
               <option value="This Week">This Week</option>
               <option value="Last Week">Last Week</option>
             </select>
           </div>
-          <div className="h-72">
+          <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={activityData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <AreaChart data={activityData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorUsage" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#1E3A8A" stopOpacity={0.3}/>
+                    <stop offset="5%" stopColor="#1E3A8A" stopOpacity={0.35}/>
                     <stop offset="95%" stopColor="#1E3A8A" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#6B7280', fontSize: 12 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6B7280', fontSize: 12 }} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 11, fontWeight: 'bold' }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 11, fontWeight: 'bold' }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Area 
+                  type="monotone" 
+                  dataKey="usage" 
+                  stroke="#1E3A8A" 
+                  strokeWidth={3} 
+                  fillOpacity={1} 
+                  fill="url(#colorUsage)" 
+                  dot={{ r: 4, strokeWidth: 2, stroke: '#FFFFFF', fill: '#1E3A8A' }}
+                  activeDot={{ r: 6, strokeWidth: 0, fill: '#1E3A8A' }}
                 />
-                <Area type="monotone" dataKey="usage" stroke="#1E3A8A" strokeWidth={3} fillOpacity={1} fill="url(#colorUsage)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Recent Activity */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-bold text-gray-900 mb-6">Recent Activity</h2>
-          <div className="space-y-6">
-            {recentActivities.map((activity) => (
-              <div key={activity.id} className="flex items-start">
-                <div className="bg-blue-50 p-2 rounded-full mr-4 text-[#1E3A8A]">
-                  {activity.type === 'maintenance' && <Wrench size={16} />}
-                  {activity.type === 'booking' && <Clock size={16} />}
-                  {activity.type === 'asset' && <Monitor size={16} />}
+        {/* Recent Activity card with clean visual indicators */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col hover:shadow-md transition-shadow duration-300">
+          <h2 className="text-lg font-bold text-gray-900 mb-6 tracking-tight font-heading border-b border-gray-50 pb-4">Recent Activity</h2>
+          <div className="space-y-6 flex-1">
+            {recentActivities.length > 0 ? (
+              recentActivities.map((activity, idx) => (
+                <div key={activity.id || idx} className="flex items-start group">
+                  <div className={`p-2.5 rounded-2xl mr-4 transform group-hover:scale-110 transition-transform duration-300 ${
+                    activity.type === 'maintenance' ? 'bg-amber-50 text-amber-600' :
+                    activity.type === 'booking' ? 'bg-blue-50 text-[#1E3A8A]' :
+                    'bg-emerald-50 text-emerald-600'
+                  }`}>
+                    {activity.type === 'maintenance' && <Wrench size={16} />}
+                    {activity.type === 'booking' && <Clock size={16} />}
+                    {activity.type === 'asset' && <Monitor size={16} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 leading-snug group-hover:text-blue-900 transition-colors break-words">{activity.text}</p>
+                    <p className="text-xs text-gray-400 mt-1 font-medium flex items-center">
+                      <Clock size={10} className="mr-1" />
+                      {activity.time}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-800 leading-snug">{activity.text}</p>
-                  <p className="text-xs text-gray-400 mt-1">{activity.time}</p>
-                </div>
+              ))
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-gray-400 py-8">
+                <Clock size={32} className="mb-2 text-gray-300" />
+                <p className="text-sm font-medium">No recent activities</p>
               </div>
-            ))}
+            )}
           </div>
           <button 
             onClick={() => navigate('/notifications')}
-            className="w-full mt-6 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+            className="w-full mt-6 py-3 border border-gray-200 hover:border-blue-200 rounded-2xl text-sm font-bold text-gray-600 hover:text-blue-700 hover:bg-blue-50/20 transition-all duration-200 cursor-pointer"
           >
             View All Activity
           </button>

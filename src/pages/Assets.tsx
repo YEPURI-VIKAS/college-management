@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, Filter, Monitor, Cpu, Armchair, BookOpen } from 'lucide-react';
+import { Plus, Search, Filter, Edit2, Trash2, Download, Monitor, Cpu, Armchair, BookOpen } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -96,22 +96,44 @@ const Assets = () => {
     }
   };
 
+  const handleExport = () => {
+    const headers = ['Asset ID', 'Name', 'Category', 'Location', 'Status', 'Date Added'];
+    const rows = assets.map(a => `"${a.id}","${a.name}","${a.category}","${a.location}","${a.status}","${a.dateAdded}"`).join('\n');
+    const csvContent = "data:text/csv;charset=utf-8," + headers.join(',') + '\n' + rows;
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `assets_report_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-end mb-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Assets Inventory</h1>
           <p className="text-gray-500 mt-1">Manage college equipment and furniture.</p>
         </div>
-        {isAdmin && (
+        <div className="flex gap-3 w-full sm:w-auto">
           <button 
-            onClick={() => setIsModalOpen(true)}
-            className="bg-[#1E3A8A] text-white px-4 py-2 rounded-xl font-medium hover:bg-[#1E40AF] transition-colors flex items-center shadow-lg shadow-blue-900/20"
+            onClick={handleExport}
+            className="bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-xl font-medium hover:bg-gray-50 transition-colors flex items-center shadow-sm flex-1 sm:flex-none justify-center"
           >
-            <Plus size={20} className="mr-2" />
-            Add Asset
+            <Download size={20} className="mr-2" />
+            Export CSV
           </button>
-        )}
+          {isAdmin && (
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="bg-[#1E3A8A] text-white px-4 py-2 rounded-xl font-medium hover:bg-[#1E40AF] transition-colors flex items-center shadow-lg shadow-blue-900/20 flex-1 sm:flex-none justify-center"
+            >
+              <Plus size={20} className="mr-2" />
+              Add Asset
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">

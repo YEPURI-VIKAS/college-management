@@ -27,7 +27,7 @@ public class MaintenanceController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'FACULTY / STAFF')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'FACULTY_STAFF')")
     public ResponseEntity<MaintenanceTicket> createTicket(@RequestBody MaintenanceTicket ticket) {
         MaintenanceTicket saved = ticketRepository.save(ticket);
         notificationService.sendNotification(

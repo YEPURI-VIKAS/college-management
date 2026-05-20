@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Search, Filter, Plus, MonitorPlay, Wind, Projector, CheckCircle2, AlertCircle } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import { api } from '../lib/api';
@@ -28,6 +28,7 @@ const Facilities = () => {
   const fetchFacilities = async () => {
     try {
       const data = await api.get<Facility[]>('/facilities');
+      data.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
       setFacilities(data);
     } catch (error) {
       console.error('Error fetching facilities:', error);
@@ -56,6 +57,7 @@ const Facilities = () => {
   const [bookingTime, setBookingTime] = useState('');
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [bookingError, setBookingError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleAddFacility = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,17 +99,22 @@ const Facilities = () => {
     setIsViewModalOpen(true);
   };
 
+  const submittingRef = useRef(false);
+
   const handleBookNow = (facility: Facility) => {
     setSelectedFacility(facility);
     setBookingEvent('');
     setBookingTime('');
     setBookingSuccess(false);
     setBookingError('');
+    setIsSubmitting(false);
+    submittingRef.current = false;
     setIsBookModalOpen(true);
   };
 
   const submitBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting || submittingRef.current) return;
     if (selectedFacility?.status === 'Maintenance') {
       setBookingError('Cannot book a facility currently under maintenance.');
       return;
@@ -117,6 +124,8 @@ const Facilities = () => {
       return;
     }
     
+    setIsSubmitting(true);
+    submittingRef.current = true;
     try {
       const id = `BKG-${Math.floor(Math.random() * 10000)}`;
       
@@ -148,11 +157,15 @@ const Facilities = () => {
       setTimeout(() => {
         setIsBookModalOpen(false);
         setBookingSuccess(false);
+        submittingRef.current = false;
       }, 2500);
 
     } catch (error) {
       console.error('Error adding booking:', error);
       setBookingError('Failed to save booking.');
+      submittingRef.current = false;
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -429,7 +442,9 @@ const Facilities = () => {
 
             <div className="pt-4 flex justify-end space-x-3 border-t border-gray-100 mt-6">
               <button type="button" onClick={() => setIsBookModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors">Cancel</button>
-              <button type="submit" className="px-4 py-2 bg-[#1E3A8A] text-white rounded-lg font-medium hover:bg-[#1E40AF] transition-colors">Confirm Booking</button>
+              <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-[#1E3A8A] text-white rounded-lg font-medium hover:bg-[#1E40AF] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {isSubmitting ? 'Booking...' : 'Confirm Booking'}
+              </button>
             </div>
           </form>
         )}

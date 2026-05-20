@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Calendar as CalendarIcon, Clock, Users, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Users, Plus, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +21,7 @@ const Bookings = () => {
   const [loading, setLoading] = useState(true);
   const locationState = useLocation();
   const [activeTab, setActiveTab] = useState<'schedule' | 'pending'>('schedule');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (locationState.state && (locationState.state as any).tab) {
@@ -113,6 +114,8 @@ const Bookings = () => {
 
   const handleAddBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     
     // Convert 24h to 12h format for display
     const formatTime = (time24: string) => {
@@ -150,23 +153,50 @@ const Bookings = () => {
     } catch (error) {
       console.error('Error adding booking:', error);
       alert('Failed to add booking.');
+    } finally {
+      setIsSubmitting(false);
     }
+  };
+
+  const handleExport = () => {
+    const headers = ['Booking ID', 'Event Title', 'Time', 'Location', 'Organizer', 'Status'];
+    const rows = schedule.map(b => `"${b.id}","${b.title}","${b.time}","${b.location}","${b.organizer}","${b.status}"`).join('\n');
+    const csvContent = "data:text/csv;charset=utf-8," + headers.join(',') + '\n' + rows;
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `bookings_report_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-end mb-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Bookings & Schedule</h1>
           <p className="text-gray-500 mt-1">Manage facility reservations and timetables.</p>
         </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="bg-[#1E3A8A] text-white px-4 py-2 rounded-xl font-medium hover:bg-[#1E40AF] transition-colors flex items-center shadow-lg shadow-blue-900/20"
-        >
-          <Plus size={20} className="mr-2" />
-          New Booking
-        </button>
+        <div className="flex gap-3 w-full sm:w-auto">
+          <button 
+            onClick={handleExport}
+            className="bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-xl font-medium hover:bg-gray-50 transition-colors flex items-center shadow-sm flex-1 sm:flex-none justify-center"
+          >
+            <Download size={20} className="mr-2" />
+            Export CSV
+          </button>
+          <button 
+            onClick={() => {
+              setIsSubmitting(false);
+              setIsModalOpen(true);
+            }}
+            className="bg-[#1E3A8A] text-white px-4 py-2 rounded-xl font-medium hover:bg-[#1E40AF] transition-colors flex items-center shadow-lg shadow-blue-900/20 flex-1 sm:flex-none justify-center"
+          >
+            <Plus size={20} className="mr-2" />
+            New Booking
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -406,6 +436,7 @@ const Bookings = () => {
             <button 
               onClick={() => {
                 setNewBooking({...newBooking, location: 'Main Auditorium', startTime: '14:00', endTime: '17:00'});
+                setIsSubmitting(false);
                 setIsModalOpen(true);
               }}
               className="bg-white text-[#1E3A8A] px-4 py-2 rounded-lg text-sm font-bold w-full hover:bg-gray-100 transition-colors relative z-10"
@@ -463,7 +494,9 @@ const Bookings = () => {
 
           <div className="pt-4 flex justify-end space-x-3 border-t border-gray-100 mt-6">
             <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors">Cancel</button>
-            <button type="submit" disabled={!newBooking.location} className="px-4 py-2 bg-[#1E3A8A] text-white rounded-lg font-medium hover:bg-[#1E40AF] transition-colors disabled:opacity-50">Request Booking</button>
+            <button type="submit" disabled={isSubmitting || !newBooking.location} className="px-4 py-2 bg-[#1E3A8A] text-white rounded-lg font-medium hover:bg-[#1E40AF] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              {isSubmitting ? 'Requesting...' : 'Request Booking'}
+            </button>
           </div>
         </form>
       </Modal>
