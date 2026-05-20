@@ -27,3 +27,6 @@ dist-ssr
 **/target/
 /maven/
 
+# Local run script containing database credentials
+run-backend.ps1
+
