@@ -27,7 +27,7 @@ export const api = {
       if (response.status === 401) {
         localStorage.removeItem('pvpsit_auth_token');
         localStorage.removeItem('pvpsit_auth_user');
-        window.location.href = '/login';
+        window.location.hash = '/login';
         return {} as T;
       }
       const errText = await response.text().catch(() => '');
