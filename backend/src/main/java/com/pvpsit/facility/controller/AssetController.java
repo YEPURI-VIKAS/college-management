@@ -29,10 +29,9 @@ public class AssetController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Asset> createAsset(@RequestBody Asset asset) {
         Asset saved = assetRepository.save(asset);
-        notificationService.sendNotification(
-            "New Asset Registered", 
-            "Asset \"" + saved.getName() + "\" (" + saved.getId() + ") has been added to inventory."
-        );
+        notificationService.sendNotificationToRole("Admin",
+            "New Asset Registered",
+            "Asset \"" + saved.getName() + "\" (" + saved.getId() + ") has been added to inventory.");
         return ResponseEntity.ok(saved);
     }
 
@@ -41,10 +40,9 @@ public class AssetController {
     public ResponseEntity<?> deleteAsset(@PathVariable String id) {
         return assetRepository.findById(id).map(asset -> {
             assetRepository.delete(asset);
-            notificationService.sendNotification(
-                "Asset Removed", 
-                "Asset \"" + asset.getName() + "\" has been deleted from inventory."
-            );
+            notificationService.sendNotificationToRole("Admin",
+                "Asset Removed",
+                "Asset \"" + asset.getName() + "\" has been deleted from inventory.");
             return ResponseEntity.ok().build();
         }).orElse(ResponseEntity.notFound().build());
     }

@@ -141,35 +141,13 @@ const Dashboard = () => {
         },
       ]);
 
-      // Weekly usage calculation
-      const baseUsageThisWeek: Record<number, number> = {
-        1: 3000, // Mon
-        2: 2400, // Tue
-        3: 2000, // Wed
-        4: 2600, // Thu
-        5: 1800, // Fri
-        6: 800,  // Sat
-        0: 400,  // Sun
-      };
-
-      const baseUsageLastWeek: Record<number, number> = {
-        1: 2800, // Mon
-        2: 2200, // Tue
-        3: 2100, // Wed
-        4: 2400, // Thu
-        5: 1900, // Fri
-        6: 600,  // Sat
-        0: 300,  // Sun
-      };
-
-      const currentBaseline = selectedWeek === 'This Week' ? baseUsageThisWeek : baseUsageLastWeek;
-
-      // Calculate start and end date for the selected week
+      // Weekly usage — real booking minutes only (no fake baseline)
+      // Calculate start of the selected week (Mon-based)
       const todayDate = new Date();
+      const todayDow = todayDate.getDay(); // 0=Sun,1=Mon,...,6=Sat
+      const diffToMon = todayDow === 0 ? -6 : 1 - todayDow;
       const startOfCurrentWeek = new Date(todayDate);
-      const day = startOfCurrentWeek.getDay();
-      const diff = startOfCurrentWeek.getDate() - day + (day === 0 ? -6 : 1);
-      startOfCurrentWeek.setDate(diff);
+      startOfCurrentWeek.setDate(todayDate.getDate() + diffToMon);
       startOfCurrentWeek.setHours(0, 0, 0, 0);
 
       if (selectedWeek === 'Last Week') {
@@ -179,21 +157,30 @@ const Dashboard = () => {
       const startMs = startOfCurrentWeek.getTime();
       const endMs = startMs + 7 * 24 * 60 * 60 * 1000;
 
-      // Sum booking minutes per day of the week
-      const dailyBookingMinutes: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 0: 0 };
+      // For 'This Week', days beyond today should show 0
+      const todayMidnight = new Date(todayDate);
+      todayMidnight.setHours(23, 59, 59, 999);
+      const todayEndMs = todayMidnight.getTime();
+
+      // day index: 0=Mon,1=Tue,...,6=Sun
+      const dailyBookingMinutes: number[] = [0, 0, 0, 0, 0, 0, 0];
 
       bookings.forEach(booking => {
         if (!booking.time) return;
         const match = booking.time.match(/^(\d{4}-\d{2}-\d{2})/);
         if (match) {
-          const bookingDateStr = match[1];
-          const bookingDate = new Date(bookingDateStr);
+          const bookingDate = new Date(match[1] + 'T00:00:00');
           const bookingMs = bookingDate.getTime();
           if (bookingMs >= startMs && bookingMs < endMs) {
-            const dayOfWeek = bookingDate.getDay();
-            
-            let duration = 60; // 1 hour default
-            const rangeMatch = booking.time.match(/(\d{2}):(\d{2})\s*([AP]M)\s*-\s*(\d{2}):(\d{2})\s*([AP]M)/i);
+            // For this week, skip future days
+            if (selectedWeek === 'This Week' && bookingMs > todayEndMs) return;
+
+            // Convert JS day (0=Sun) to Mon-based index (0=Mon)
+            const jsDow = bookingDate.getDay();
+            const monIdx = jsDow === 0 ? 6 : jsDow - 1;
+
+            let duration = 60; // default 1 hour
+            const rangeMatch = booking.time.match(/(\d{1,2}):(\d{2})\s*([AP]M)\s*-\s*(\d{1,2}):(\d{2})\s*([AP]M)/i);
             if (rangeMatch) {
               let sh = parseInt(rangeMatch[1]);
               const sm = parseInt(rangeMatch[2]);
@@ -201,30 +188,22 @@ const Dashboard = () => {
               let eh = parseInt(rangeMatch[4]);
               const em = parseInt(rangeMatch[5]);
               const eampm = rangeMatch[6].toUpperCase();
-              
               if (sampm === 'PM' && sh < 12) sh += 12;
               if (sampm === 'AM' && sh === 12) sh = 0;
               if (eampm === 'PM' && eh < 12) eh += 12;
               if (eampm === 'AM' && eh === 12) eh = 0;
-              
-              const startMin = sh * 60 + sm;
-              const endMin = eh * 60 + em;
-              duration = Math.max(30, endMin - startMin);
+              duration = Math.max(30, (eh * 60 + em) - (sh * 60 + sm));
             }
-            dailyBookingMinutes[dayOfWeek] = (dailyBookingMinutes[dayOfWeek] || 0) + duration;
+            dailyBookingMinutes[monIdx] += duration;
           }
         }
       });
 
-      const newChartData = [
-        { name: 'Mon', usage: currentBaseline[1] + (dailyBookingMinutes[1] || 0) },
-        { name: 'Tue', usage: currentBaseline[2] + (dailyBookingMinutes[2] || 0) },
-        { name: 'Wed', usage: currentBaseline[3] + (dailyBookingMinutes[3] || 0) },
-        { name: 'Thu', usage: currentBaseline[4] + (dailyBookingMinutes[4] || 0) },
-        { name: 'Fri', usage: currentBaseline[5] + (dailyBookingMinutes[5] || 0) },
-        { name: 'Sat', usage: currentBaseline[6] + (dailyBookingMinutes[6] || 0) },
-        { name: 'Sun', usage: currentBaseline[0] + (dailyBookingMinutes[0] || 0) },
-      ];
+      const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const newChartData = dayLabels.map((label, i) => ({
+        name: label,
+        usage: dailyBookingMinutes[i],
+      }));
 
       setActivityData(newChartData);
     } catch (error) {
@@ -239,16 +218,18 @@ const Dashboard = () => {
       try {
         const parsed = JSON.parse(saved);
         
-        // Remove duplicates to present correct data
-        const seen = new Set();
+        // Remove duplicates by both id and content
+        const seenIds = new Set();
+        const seenContent = new Set();
         const uniqueParsed = parsed.filter((item: any) => {
-          const key = `${item.title.trim()}-${item.desc.trim()}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
+          const contentKey = `${item.title.trim()}-${item.desc.trim()}`;
+          if (seenIds.has(item.id) || seenContent.has(contentKey)) return false;
+          seenIds.add(item.id);
+          seenContent.add(contentKey);
           return true;
         });
 
-        activities = uniqueParsed.map((item: any) => {
+        activities = uniqueParsed.map((item: any, i: number) => {
           let type = 'system';
           const title = item.title.toLowerCase();
           if (title.includes('maintenance') || title.includes('ticket')) {
@@ -259,7 +240,7 @@ const Dashboard = () => {
             type = 'asset';
           }
           return {
-            id: item.id,
+            id: `${item.id}_${i}`,
             text: `${item.title}: ${item.desc}`,
             time: item.time,
             type: type
@@ -286,6 +267,12 @@ const Dashboard = () => {
     fetchDashboardStats();
     loadNotifications();
 
+    // Live polling every 30 seconds
+    const interval = setInterval(() => {
+      fetchDashboardStats();
+      loadNotifications();
+    }, 30000);
+
     // Listen to real-time updates triggered by WebSocket sync
     const handleSync = () => {
       fetchDashboardStats();
@@ -293,7 +280,10 @@ const Dashboard = () => {
     };
 
     window.addEventListener('pvpsit_notifications_updated', handleSync);
-    return () => window.removeEventListener('pvpsit_notifications_updated', handleSync);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('pvpsit_notifications_updated', handleSync);
+    };
   }, [selectedWeek]);
 
   return (
@@ -426,26 +416,41 @@ const Dashboard = () => {
           <h2 className="text-lg font-bold text-gray-900 mb-6 tracking-tight font-heading border-b border-gray-50 pb-4">Recent Activity</h2>
           <div className="space-y-6 flex-1">
             {recentActivities.length > 0 ? (
-              recentActivities.map((activity, idx) => (
-                <div key={activity.id || idx} className="flex items-start group">
-                  <div className={`p-2.5 rounded-2xl mr-4 transform group-hover:scale-110 transition-transform duration-300 ${
-                    activity.type === 'maintenance' ? 'bg-amber-50 text-amber-600' :
-                    activity.type === 'booking' ? 'bg-blue-50 text-[#1E3A8A]' :
-                    'bg-emerald-50 text-emerald-600'
-                  }`}>
-                    {activity.type === 'maintenance' && <Wrench size={16} />}
-                    {activity.type === 'booking' && <Clock size={16} />}
-                    {activity.type === 'asset' && <Monitor size={16} />}
+              recentActivities.map((activity, idx) => {
+                const activityPath =
+                  activity.type === 'maintenance' ? '/maintenance' :
+                  activity.type === 'booking' ? '/bookings' :
+                  activity.type === 'asset' ? '/assets' :
+                  '/notifications';
+                return (
+                  <div
+                    key={idx}
+                    role="button"
+                    tabIndex={0}
+                    className="flex items-start group cursor-pointer rounded-2xl p-2 -mx-2 hover:bg-blue-50/40 transition-colors duration-200"
+                    onClick={() => navigate(activityPath)}
+                    onKeyDown={(e) => e.key === 'Enter' && navigate(activityPath)}
+                  >
+                    <div className={`p-2.5 rounded-2xl mr-4 transform group-hover:scale-110 transition-transform duration-300 ${
+                      activity.type === 'maintenance' ? 'bg-amber-50 text-amber-600' :
+                      activity.type === 'booking' ? 'bg-blue-50 text-[#1E3A8A]' :
+                      'bg-emerald-50 text-emerald-600'
+                    }`}>
+                      {activity.type === 'maintenance' && <Wrench size={16} />}
+                      {activity.type === 'booking' && <Clock size={16} />}
+                      {activity.type === 'asset' && <Monitor size={16} />}
+                      {activity.type === 'system' && <Monitor size={16} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 leading-snug group-hover:text-blue-900 transition-colors break-words">{activity.text}</p>
+                      <p className="text-xs text-gray-400 mt-1 font-medium flex items-center">
+                        <Clock size={10} className="mr-1" />
+                        {activity.time}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-800 leading-snug group-hover:text-blue-900 transition-colors break-words">{activity.text}</p>
-                    <p className="text-xs text-gray-400 mt-1 font-medium flex items-center">
-                      <Clock size={10} className="mr-1" />
-                      {activity.time}
-                    </p>
-                  </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-gray-400 py-8">
                 <Clock size={32} className="mb-2 text-gray-300" />

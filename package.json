@@ -2,15 +2,12 @@
   "name": "college-facility-management",
   "private": true,
   "version": "0.0.0",
-  "homepage": "https://yepuri-vikas.github.io/college-management",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",

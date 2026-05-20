@@ -11,6 +11,7 @@ type Booking = {
   time: string;
   location: string;
   organizer: string;
+  organizerEmail?: string;
   status: string;
 };
 
@@ -31,10 +32,38 @@ const Bookings = () => {
 
   const handleUpdateStatus = async (id: string | number, status: string) => {
     try {
+      // Find the booking before updating so we have location info
+      const bookingItem = schedule.find(b => b.id === id);
+      
       await api.patch(`/bookings/${id}/status`, { status });
       setSchedule(prev =>
         prev.map(item => (item.id === id ? { ...item, status } : item))
       );
+
+      // Write notification directly to the student's notification key (role-aware)
+      const ownerEmail = localStorage.getItem(`pvpsit_booking_owner_${id}`);
+      const ownerRole  = localStorage.getItem(`pvpsit_booking_owner_role_${id}`) || 'Student';
+      if (ownerEmail && bookingItem) {
+        const title = status === 'Confirmed' ? 'Booking Confirmed' :
+                      status === 'Rejected'  ? 'Booking Rejected'  :
+                      `Booking ${status}`;
+        const desc = status === 'Confirmed'
+          ? `Great news! Your booking for ${bookingItem.location} has been confirmed.`
+          : status === 'Rejected'
+          ? `Your booking for ${bookingItem.location} has been rejected by the admin.`
+          : `Your booking for ${bookingItem.location} status changed to: ${status}.`;
+
+        const notifKey = `pvpsit_notifications_${ownerEmail}_${ownerRole}`;
+        const existing: any[] = JSON.parse(localStorage.getItem(notifKey) || '[]');
+        const isDup = existing.slice(0, 5).some((n: any) => n.title === title && n.desc === desc);
+        if (!isDup) {
+          const newNotif = { id: Date.now(), title, desc, time: 'Just now', unread: true };
+          const updated = [newNotif, ...existing];
+          localStorage.setItem(notifKey, JSON.stringify(updated));
+          localStorage.setItem('pvpsit_notifications', JSON.stringify(updated));
+          window.dispatchEvent(new Event('pvpsit_notifications_updated'));
+        }
+      }
     } catch (error) {
       console.error('Error updating booking status:', error);
       alert('Failed to update booking status.');
@@ -134,13 +163,36 @@ const Bookings = () => {
       time: timeString,
       location: newBooking.location,
       organizer: newBooking.organizer || user?.user_metadata?.full_name || 'Staff Member',
+      organizerEmail: user?.email || '',
       status: 'Pending'
     };
 
     try {
       const saved = await api.post<Booking>('/bookings', bookingToInsert);
       setSchedule([...schedule, saved]);
-      
+
+      // Map booking ID → student's email+role so admin can notify them later
+      const savedId = (saved as any).id || bookingToInsert.id;
+      if (user?.email) {
+        localStorage.setItem(`pvpsit_booking_owner_${savedId}`, user.email);
+        localStorage.setItem(`pvpsit_booking_owner_role_${savedId}`, user?.user_metadata?.role || 'Student');
+
+        // Immediately write "Booking Submitted" notification to THIS user's role-specific key
+        const notifKey = `pvpsit_notifications_${user.email}_${user?.user_metadata?.role || 'Student'}`;
+        const existing: any[] = JSON.parse(localStorage.getItem(notifKey) || '[]');
+        const submittedNotif = {
+          id: Date.now(),
+          title: 'Booking Submitted',
+          desc: `Your booking for ${bookingToInsert.location} has been submitted and is pending approval.`,
+          time: 'Just now',
+          unread: true
+        };
+        const updatedNotifs = [submittedNotif, ...existing];
+        localStorage.setItem(notifKey, JSON.stringify(updatedNotifs));
+        localStorage.setItem('pvpsit_notifications', JSON.stringify(updatedNotifs));
+        window.dispatchEvent(new Event('pvpsit_notifications_updated'));
+      }
+
       setIsModalOpen(false);
       setNewBooking({ 
         title: '', 

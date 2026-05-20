@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -91,49 +91,10 @@ const Header = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [toast, setToast] = useState<{ title: string; desc: string } | null>(null);
   
-  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
-    const saved = localStorage.getItem('pvpsit_notifications');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    return [
-      { id: 1, title: 'New Maintenance Request', desc: 'Projector broken in CSE Lab 1', time: '10 mins ago', unread: true },
-      { id: 2, title: 'Booking Approved', desc: 'Main Auditorium booked for Guest Lecture', time: '1 hour ago', unread: true },
-      { id: 3, title: 'System Alert', desc: 'Routine maintenance scheduled for this weekend', time: '5 hours ago', unread: false },
-    ];
-  });
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
-  useEffect(() => {
-    const savedStr = localStorage.getItem('pvpsit_notifications');
-    const newStr = JSON.stringify(notifications);
-    if (savedStr !== newStr) {
-      localStorage.setItem('pvpsit_notifications', newStr);
-      window.dispatchEvent(new Event('pvpsit_notifications_updated'));
-    }
-  }, [notifications]);
-
-  useEffect(() => {
-    const handleSync = () => {
-      const saved = localStorage.getItem('pvpsit_notifications');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setNotifications(prev => {
-            if (JSON.stringify(prev) !== saved) {
-              return parsed;
-            }
-            return prev;
-          });
-        } catch (e) {}
-      }
-    };
-    window.addEventListener('pvpsit_notifications_updated', handleSync);
-    return () => window.removeEventListener('pvpsit_notifications_updated', handleSync);
-  }, []);
+  // Ref always pointing to the latest addNotification (avoids stale closures in async effects)
+  const addNotifRef = useRef<(title: string, desc: string) => void>(() => {});
 
   const [showResults, setShowResults] = useState(false);
   const [dbData, setDbData] = useState<{
@@ -202,98 +163,179 @@ const Header = () => {
     )
   };
 
-  const notificationKey = `pvpsit_notifications_${user?.email || 'guest'}`;
+  // KEY includes role so admin and student with same email never share a notification bucket
+  const notificationKey = `pvpsit_notifications_${user?.email}_${user?.user_metadata?.role || 'guest'}`;
 
-  // Initialize notifications from localStorage
+  // Unified save: syncs BOTH user-specific key AND generic key (Dashboard reads generic)
+  const saveNotifs = (notifs: NotificationItem[]) => {
+    localStorage.setItem(notificationKey, JSON.stringify(notifs));
+    localStorage.setItem('pvpsit_notifications', JSON.stringify(notifs));
+    window.dispatchEvent(new Event('pvpsit_notifications_updated'));
+  };
+
+  // Keep addNotifRef current every render so polling/WS never use stale closures
+  useEffect(() => {
+    addNotifRef.current = (title: string, desc: string) => {
+      // Read fresh from localStorage to avoid stale closure issues
+      const existing: NotificationItem[] = JSON.parse(localStorage.getItem(notificationKey) || '[]');
+      // Deduplicate: skip if same title+desc exists in last 10 items
+      const isDup = existing.slice(0, 10).some(n => n.title === title && n.desc === desc);
+      if (isDup) return;
+      const newNotif: NotificationItem = { id: Date.now(), title, desc, time: 'Just now', unread: true };
+      const newNotifs = [newNotif, ...existing];
+      // Write to localStorage FIRST, then update state
+      localStorage.setItem(notificationKey, JSON.stringify(newNotifs));
+      localStorage.setItem('pvpsit_notifications', JSON.stringify(newNotifs));
+      // Update React state directly (no cascade)
+      setNotifications(newNotifs);
+      // Show toast
+      setToast({ title, desc });
+      setTimeout(() => setToast(null), 4000);
+    };
+  });
+
+  // Load notifications on mount / when user changes (role-specific key)
   useEffect(() => {
     const saved = localStorage.getItem(notificationKey);
-    if (saved) {
-      try {
-        setNotifications(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to parse notifications', e);
-      }
-    } else {
-      setNotifications([]);
-    }
+    try { setNotifications(saved ? JSON.parse(saved) : []); } catch (e) { setNotifications([]); }
   }, [notificationKey]);
 
+  // Sync from other components / tabs (single listener, correct key)
   useEffect(() => {
     const handleSync = () => {
       const saved = localStorage.getItem(notificationKey);
-      if (saved) {
-        try {
-          setNotifications(JSON.parse(saved));
-        } catch (e) {}
-      } else {
-        setNotifications([]);
-      }
+      if (saved) { try { setNotifications(JSON.parse(saved)); } catch (e) {} }
     };
     window.addEventListener('pvpsit_notifications_updated', handleSync);
     return () => window.removeEventListener('pvpsit_notifications_updated', handleSync);
   }, [notificationKey]);
 
+  // Admin polling: detect new Pending bookings every 15s (fallback when WS is missed)
   useEffect(() => {
-    const addNotification = (title: string, desc: string) => {
-      setNotifications(prev => {
-        const newNotifs = [
-          { id: Date.now(), title, desc, time: 'Just now', unread: true },
-          ...prev
-        ];
-        localStorage.setItem(notificationKey, JSON.stringify(newNotifs));
-        window.dispatchEvent(new Event('pvpsit_notifications_updated'));
-        return newNotifs;
-      });
-      setToast({ title, desc });
-      setTimeout(() => {
-        setToast(null);
-      }, 4000);
-    };
+    const isAdminUser = user?.user_metadata?.role === 'Admin';
+    if (!isAdminUser) return;
 
-    // WebSocket connection to Spring Boot
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
-    const ws = new WebSocket(wsUrl);
+    let knownPendingIds = new Set<string | number>();
+    let isFirst = true;
 
-    ws.onmessage = (event) => {
+    const checkNewBookings = async () => {
       try {
-        const payload = JSON.parse(event.data);
-        if (payload.title && payload.desc) {
-          addNotification(payload.title, payload.desc);
+        const bookings = await api.get<any[]>('/bookings');
+        const pending = bookings.filter(b => b.status === 'Pending');
+
+        if (!isFirst) {
+          pending.forEach(b => {
+            if (!knownPendingIds.has(b.id)) {
+              addNotifRef.current(
+                'New Booking Request',
+                `A new booking request has been submitted for ${b.location}.`
+              );
+            }
+          });
         }
-      } catch (err) {
-        console.error("Failed to parse websocket message:", err);
-      }
+
+        knownPendingIds = new Set(pending.map(b => b.id));
+        isFirst = false;
+      } catch (e) {}
     };
 
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
+    checkNewBookings();
+    const iv = setInterval(checkNewBookings, 15000);
+    return () => clearInterval(iv);
+  }, [user?.user_metadata?.role]);
+
+  // Student polling: detect booking status changes every 15s
+  useEffect(() => {
+    if (!user?.email) return;
+    let known: Record<string, string> = {};
+    let isFirst = true;
+
+    const check = async () => {
+      try {
+        const bookings = await api.get<any[]>('/bookings');
+        const email = user.email!.toLowerCase();
+        bookings
+          // Only check bookings owned by this user (via stored mapping)
+          .filter(b => {
+            const ownerEmail = localStorage.getItem(`pvpsit_booking_owner_${b.id}`);
+            return ownerEmail && ownerEmail.toLowerCase() === email;
+          })
+          .forEach(b => {
+            if (!isFirst && known[b.id] && known[b.id] !== b.status) {
+              if (b.status === 'Confirmed') {
+                addNotifRef.current('Booking Confirmed', `Great news! Your booking for ${b.location} has been confirmed.`);
+              } else if (b.status === 'Rejected' || b.status === 'Cancelled') {
+                addNotifRef.current('Booking Rejected', `Your booking for ${b.location} has been rejected by the admin.`);
+              } else if (b.status !== 'Pending') {
+                addNotifRef.current(`Booking ${b.status}`, `Your booking for ${b.location} is now ${b.status.toLowerCase()}.`);
+              }
+            }
+            known[b.id] = b.status;
+          });
+        isFirst = false;
+      } catch (e) {}
     };
 
+    check();
+    const iv = setInterval(check, 15000);
+    return () => clearInterval(iv);
+  }, [user?.email]);
+
+  useEffect(() => {
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
+    let ws: WebSocket;
+    let retry: ReturnType<typeof setTimeout>;
+    let active = true;
+
+    const connect = () => {
+      if (!active) return;
+      try {
+        ws = new WebSocket(wsUrl);
+        ws.onmessage = (event) => {
+          try {
+            const p = JSON.parse(event.data);
+            if (!p.title || !p.desc) return;
+
+            const userRole = user?.user_metadata?.role; // "Admin" or "Student"
+
+            // Role-targeted: only show to the specified role
+            if (p.role && p.role !== userRole) return;
+
+            // Email-targeted: only show to the specified email
+            if (p.email && p.email !== user?.email) return;
+
+            addNotifRef.current(p.title, p.desc);
+          } catch (_) {}
+        };
+        ws.onerror = () => {};
+        ws.onclose = () => { if (active) retry = setTimeout(connect, 5000); };
+      } catch (_) {}
+    };
+
+    connect();
     return () => {
-      ws.close();
+      active = false;
+      clearTimeout(retry);
+      try { ws?.close(); } catch (_) {}
     };
-  }, [notificationKey]);
+  }, [user?.email, user?.user_metadata?.role]);
 
   const handleMarkAllAsRead = () => {
     const updated = notifications.map(n => ({ ...n, unread: false }));
     setNotifications(updated);
-    localStorage.setItem(`pvpsit_notifications_${user?.email || 'guest'}`, JSON.stringify(updated));
-    window.dispatchEvent(new Event('pvpsit_notifications_updated'));
+    saveNotifs(updated);
   };
 
   const handleNotificationClick = (id: number) => {
     const clicked = notifications.find(n => n.id === id);
-    const updated = notifications.map(n => 
-      n.id === id ? { ...n, unread: false } : n
-    );
+    const updated = notifications.map(n => n.id === id ? { ...n, unread: false } : n);
     setNotifications(updated);
-    localStorage.setItem(`pvpsit_notifications_${user?.email || 'guest'}`, JSON.stringify(updated));
-    window.dispatchEvent(new Event('pvpsit_notifications_updated'));
+    saveNotifs(updated);
     setShowNotifications(false);
     if (clicked) {
       const t = clicked.title.toLowerCase();
-      if (t.includes('booking') || t.includes('booked') || t.includes('approval') || t.includes('approved') || t.includes('confirmed')) {
-        navigate('/bookings', { state: { tab: 'pending' } });
+      if (t.includes('booking') || t.includes('booked') || t.includes('approval') || t.includes('approved') || t.includes('confirmed') || t.includes('rejected')) {
+        navigate('/bookings');
       } else if (t.includes('maintenance') || t.includes('ticket') || t.includes('repaired')) {
         navigate('/maintenance');
       } else if (t.includes('asset') || t.includes('inventory') || t.includes('removed') || t.includes('deleted')) {
@@ -308,7 +350,7 @@ const Header = () => {
     if (!toast) return;
     const t = toast.title.toLowerCase();
     setToast(null);
-    if (t.includes('booking') || t.includes('booked') || t.includes('approval') || t.includes('approved') || t.includes('confirmed')) {
+    if (t.includes('booking') || t.includes('booked') || t.includes('approval') || t.includes('approved') || t.includes('confirmed') || t.includes('rejected')) {
       navigate('/bookings');
     } else if (t.includes('maintenance') || t.includes('ticket') || t.includes('repaired') || t.includes('status updated')) {
       navigate('/maintenance');
@@ -467,31 +509,51 @@ const Header = () => {
           {showNotifications && (
             <div className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 z-50">
               <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                <h3 className="font-bold text-gray-900">Notifications</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-gray-900">Notifications</h3>
+                  {notifications.filter(n => n.unread).length > 0 && (
+                    <span className="bg-[#1E3A8A] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      {notifications.filter(n => n.unread).length} new
+                    </span>
+                  )}
+                </div>
                 <button 
                   onClick={handleMarkAllAsRead}
-                  className="text-xs text-[#1E3A8A] hover:underline font-medium"
+                  className="text-xs text-[#1E3A8A] hover:underline font-medium disabled:opacity-40"
+                  disabled={notifications.length === 0}
                 >
                   Mark all as read
                 </button>
               </div>
-              <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
-                {notifications.map(notification => (
-                  <div 
-                    key={notification.id} 
-                    onClick={() => handleNotificationClick(notification.id)}
-                    className={`p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer ${notification.unread ? 'bg-blue-50/30' : ''}`}
-                  >
-                    <div className="flex justify-between items-start mb-1">
-                      <h4 className={`text-sm font-semibold ${notification.unread ? 'text-gray-900' : 'text-gray-700'}`}>
-                        {notification.title}
-                      </h4>
-                      {notification.unread && <span className="w-2 h-2 bg-[#1E3A8A] rounded-full mt-1.5 shrink-0"></span>}
+              <div className="max-h-[320px] overflow-y-auto custom-scrollbar">
+                {notifications.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 px-6 text-center">
+                    <div className="bg-gray-50 p-3 rounded-full mb-3">
+                      <Bell size={22} className="text-gray-300" />
                     </div>
-                    <p className="text-xs text-gray-500 line-clamp-2">{notification.desc}</p>
-                    <span className="text-[10px] text-gray-400 mt-2 block">{notification.time}</span>
+                    <p className="text-sm font-semibold text-gray-500">You're all caught up!</p>
+                    <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                      Notifications for your bookings and updates will appear here.
+                    </p>
                   </div>
-                ))}
+                ) : (
+                  notifications.slice(0, 5).map(notification => (
+                    <div 
+                      key={notification.id} 
+                      onClick={() => handleNotificationClick(notification.id)}
+                      className={`p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer ${notification.unread ? 'bg-blue-50/30' : ''}`}
+                    >
+                      <div className="flex justify-between items-start mb-1">
+                        <h4 className={`text-sm font-semibold leading-snug ${notification.unread ? 'text-gray-900' : 'text-gray-600'}`}>
+                          {notification.title}
+                        </h4>
+                        {notification.unread && <span className="w-2 h-2 bg-[#1E3A8A] rounded-full mt-1.5 shrink-0 ml-2"></span>}
+                      </div>
+                      <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{notification.desc}</p>
+                      <span className="text-[10px] text-gray-400 mt-1.5 block">{notification.time}</span>
+                    </div>
+                  ))
+                )}
               </div>
               <div className="p-3 border-t border-gray-100 bg-gray-50/50 text-center">
                 <button 
@@ -499,9 +561,12 @@ const Header = () => {
                     setShowNotifications(false);
                     navigate('/notifications');
                   }}
-                  className="text-sm font-medium text-[#1E3A8A] hover:text-[#1E40AF]"
+                  className="text-sm font-medium text-[#1E3A8A] hover:text-[#1E40AF] transition-colors"
                 >
                   View All Notifications
+                  {notifications.length > 5 && (
+                    <span className="ml-1 text-xs text-gray-400">({notifications.length - 5} more)</span>
+                  )}
                 </button>
               </div>
             </div>

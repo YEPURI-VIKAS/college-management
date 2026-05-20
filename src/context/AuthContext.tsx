@@ -41,95 +41,44 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const login = async (email: string, password: string) => {
-    try {
-      // Try Spring Boot backend first (works locally)
-      const res = await api.post<any>('/auth/login', { email, password });
-      if (res.token && res.user) {
-        const appUser: AppUser = {
-          id: res.user.id,
-          email: res.user.email,
-          user_metadata: {
-            role: res.user.role,
-            full_name: res.user.fullName
-          }
-        };
-        localStorage.setItem('pvpsit_auth_token', res.token);
-        localStorage.setItem('pvpsit_auth_user', JSON.stringify(appUser));
-        setUser(appUser);
-        return;
-      }
-    } catch (_) {
-      // Backend unavailable — fall back to Supabase (works online)
-    }
-
-    // Supabase fallback for hosted/demo environment
-    const { supabase } = await import('../lib/supabase');
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message);
-    if (data.user && data.session) {
+    const res = await api.post<any>('/auth/login', { email, password });
+    if (res.token && res.user) {
       const appUser: AppUser = {
-        id: data.user.id,
-        email: data.user.email ?? email,
+        id: res.user.id,
+        email: res.user.email,
         user_metadata: {
-          role: data.user.user_metadata?.role ?? 'Student',
-          full_name: data.user.user_metadata?.full_name ?? email.split('@')[0]
+          role: res.user.role,
+          full_name: res.user.fullName
         }
       };
-      localStorage.setItem('pvpsit_auth_token', data.session.access_token);
+      localStorage.setItem('pvpsit_auth_token', res.token);
       localStorage.setItem('pvpsit_auth_user', JSON.stringify(appUser));
       setUser(appUser);
+    } else {
+      throw new Error("Invalid response from server");
     }
   };
 
   const signup = async (email: string, password: string, fullName: string, role: string) => {
-    try {
-      // Try Spring Boot backend first (works locally)
-      const res = await api.post<any>('/auth/signup', { email, password, fullName, role });
-      if (res.token && res.user) {
-        const appUser: AppUser = {
-          id: res.user.id,
-          email: res.user.email,
-          user_metadata: {
-            role: res.user.role,
-            full_name: res.user.fullName
-          }
-        };
-        localStorage.setItem('pvpsit_auth_token', res.token);
-        localStorage.setItem('pvpsit_auth_user', JSON.stringify(appUser));
-        setUser(appUser);
-        return;
-      }
-    } catch (_) {
-      // Backend unavailable — fall back to Supabase (works online)
-    }
-
-    // Supabase fallback for hosted/demo environment
-    const { supabase } = await import('../lib/supabase');
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: fullName, role } }
-    });
-    if (error) throw new Error(error.message);
-    if (data.user && data.session) {
+    const res = await api.post<any>('/auth/signup', { email, password, fullName, role });
+    if (res.token && res.user) {
       const appUser: AppUser = {
-        id: data.user.id,
-        email: data.user.email ?? email,
-        user_metadata: { role, full_name: fullName }
+        id: res.user.id,
+        email: res.user.email,
+        user_metadata: {
+          role: res.user.role,
+          full_name: res.user.fullName
+        }
       };
-      localStorage.setItem('pvpsit_auth_token', data.session.access_token);
+      localStorage.setItem('pvpsit_auth_token', res.token);
       localStorage.setItem('pvpsit_auth_user', JSON.stringify(appUser));
       setUser(appUser);
-    } else if (data.user && !data.session) {
-      throw new Error('Please check your email to confirm your account, or contact admin.');
+    } else {
+      throw new Error("Invalid response from server");
     }
   };
 
   const signOut = async () => {
-    try {
-      const { supabase } = await import('../lib/supabase');
-      await supabase.auth.signOut();
-    } catch (_) { /* ignore */ }
     localStorage.removeItem('pvpsit_auth_token');
     localStorage.removeItem('pvpsit_auth_user');
     setUser(null);

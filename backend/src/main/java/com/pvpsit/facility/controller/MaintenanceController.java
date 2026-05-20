@@ -30,10 +30,10 @@ public class MaintenanceController {
     @PreAuthorize("hasAnyRole('ADMIN', 'FACULTY_STAFF')")
     public ResponseEntity<MaintenanceTicket> createTicket(@RequestBody MaintenanceTicket ticket) {
         MaintenanceTicket saved = ticketRepository.save(ticket);
-        notificationService.sendNotification(
-            "New Maintenance Request", 
-            "Issue \"" + saved.getTitle() + "\" reported at " + saved.getLocation() + "."
-        );
+        // Admin sees new tickets; the person who submitted it gets frontend localStorage notification
+        notificationService.sendNotificationToRole("Admin",
+            "New Maintenance Request",
+            "Issue \"" + saved.getTitle() + "\" reported at " + saved.getLocation() + ".");
         return ResponseEntity.ok(saved);
     }
 
@@ -44,10 +44,10 @@ public class MaintenanceController {
         return ticketRepository.findById(id).map(ticket -> {
             ticket.setStatus(status);
             MaintenanceTicket saved = ticketRepository.save(ticket);
-            notificationService.sendNotification(
-                "Maintenance Status Updated", 
-                "Ticket \"" + saved.getTitle() + "\" is now " + saved.getStatus() + "."
-            );
+            // Students/Staff get updates when admin changes their ticket status
+            notificationService.sendNotificationToRole("Student",
+                "Maintenance Update",
+                "Your ticket \"" + saved.getTitle() + "\" is now " + saved.getStatus() + ".");
             return ResponseEntity.ok(saved);
         }).orElse(ResponseEntity.notFound().build());
     }
@@ -57,10 +57,9 @@ public class MaintenanceController {
     public ResponseEntity<?> deleteTicket(@PathVariable String id) {
         return ticketRepository.findById(id).map(ticket -> {
             ticketRepository.delete(ticket);
-            notificationService.sendNotification(
-                "Maintenance Ticket Deleted", 
-                "Ticket \"" + ticket.getTitle() + "\" has been deleted."
-            );
+            notificationService.sendNotificationToRole("Admin",
+                "Maintenance Ticket Deleted",
+                "Ticket \"" + ticket.getTitle() + "\" has been deleted.");
             return ResponseEntity.ok().build();
         }).orElse(ResponseEntity.notFound().build());
     }

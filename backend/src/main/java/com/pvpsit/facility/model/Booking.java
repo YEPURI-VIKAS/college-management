@@ -21,7 +21,10 @@ public class Booking {
     private String organizer;
 
     @Column(nullable = false)
-    private String status; // 'Pending', 'Approved', 'Rejected'
+    private String status; // 'Pending', 'Confirmed', 'Rejected'
+
+    @Column
+    private String organizerEmail; // student's email for targeted WS notifications
 
     public Booking() {}
 
@@ -44,6 +47,8 @@ public class Booking {
     public void setLocation(String location) { this.location = location; }
     public String getOrganizer() { return organizer; }
     public void setOrganizer(String organizer) { this.organizer = organizer; }
+    public String getOrganizerEmail() { return organizerEmail; }
+    public void setOrganizerEmail(String organizerEmail) { this.organizerEmail = organizerEmail; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
 }

@@ -29,10 +29,10 @@ public class BookingController {
     @PostMapping
     public ResponseEntity<Booking> createBooking(@RequestBody Booking booking) {
         Booking saved = bookingRepository.save(booking);
-        notificationService.sendNotification(
-            "New Booking Request", 
-            "A new booking request has been submitted for " + saved.getLocation() + "."
-        );
+        // Only admins need to see new booking requests
+        notificationService.sendNotificationToRole("Admin",
+            "New Booking Request",
+            "A new booking request has been submitted for " + saved.getLocation() + ".");
         return ResponseEntity.ok(saved);
     }
 
@@ -43,10 +43,16 @@ public class BookingController {
         return bookingRepository.findById(id).map(booking -> {
             booking.setStatus(status);
             Booking saved = bookingRepository.save(booking);
-            notificationService.sendNotification(
-                "Booking " + status, 
-                "Booking request for " + saved.getLocation() + " has been " + status.toLowerCase() + "."
-            );
+
+            String title = "Booking " + status;
+            String desc = "Confirmed".equals(status)
+                ? "Great news! Your booking for " + saved.getLocation() + " has been confirmed."
+                : "Rejected".equals(status)
+                ? "Your booking for " + saved.getLocation() + " has been rejected by the admin."
+                : "Your booking for " + saved.getLocation() + " status changed to: " + status + ".";
+
+            // Only students should see booking confirmations/rejections
+            notificationService.sendNotificationToRole("Student", title, desc);
             return ResponseEntity.ok(saved);
         }).orElse(ResponseEntity.notFound().build());
     }

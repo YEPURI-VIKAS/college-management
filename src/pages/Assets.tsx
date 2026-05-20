@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, Filter, Download, Monitor, Cpu, Armchair, BookOpen } from 'lucide-react';
+import { Plus, Search, Filter, Edit2, Trash2, Download, Monitor, Cpu, Armchair, BookOpen } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -98,7 +98,7 @@ const Assets = () => {
 
   const handleExport = () => {
     const headers = ['Asset ID', 'Name', 'Category', 'Location', 'Status', 'Date Added'];
-    const rows = assets.map(a => `"${a.id}","${a.name}","${a.category}","${a.location}","${a.status}","${a.purchaseDate}"`).join('\n');
+    const rows = assets.map(a => `"${a.id}","${a.name}","${a.category}","${a.location}","${a.status}","${a.dateAdded}"`).join('\n');
     const csvContent = "data:text/csv;charset=utf-8," + headers.join(',') + '\n' + rows;
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");

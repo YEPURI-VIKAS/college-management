@@ -23,8 +23,30 @@ public class NotificationService {
             payload.put("desc", desc);
             String json = objectMapper.writeValueAsString(payload);
             webSocketHandler.broadcast(json);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        } catch (Exception e) { e.printStackTrace(); }
+    }
+
+    // Send only to users with matching role (e.g. "Admin" or "Student")
+    public void sendNotificationToRole(String role, String title, String desc) {
+        try {
+            Map<String, String> payload = new HashMap<>();
+            payload.put("title", title);
+            payload.put("desc", desc);
+            payload.put("role", role);
+            String json = objectMapper.writeValueAsString(payload);
+            webSocketHandler.broadcast(json);
+        } catch (Exception e) { e.printStackTrace(); }
+    }
+
+    // Send only to a specific user email
+    public void sendNotificationToUser(String email, String title, String desc) {
+        try {
+            Map<String, String> payload = new HashMap<>();
+            payload.put("title", title);
+            payload.put("desc", desc);
+            payload.put("email", email);
+            String json = objectMapper.writeValueAsString(payload);
+            webSocketHandler.broadcast(json);
+        } catch (Exception e) { e.printStackTrace(); }
     }
 }

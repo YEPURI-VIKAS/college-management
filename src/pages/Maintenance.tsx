@@ -66,6 +66,24 @@ const Maintenance = () => {
     try {
       const saved = await api.post<Ticket>('/tickets', ticketToInsert);
       setTickets([saved, ...tickets]);
+
+      // Immediately notify the person who submitted the ticket
+      if (user?.email) {
+        const notifKey = `pvpsit_notifications_${user.email}_${user?.user_metadata?.role || 'Student'}`;
+        const existing: any[] = JSON.parse(localStorage.getItem(notifKey) || '[]');
+        const newNotif = {
+          id: Date.now(),
+          title: 'Ticket Submitted',
+          desc: `Your maintenance request for "${ticketToInsert.title}" at ${ticketToInsert.location} has been submitted.`,
+          time: 'Just now',
+          unread: true
+        };
+        const updated = [newNotif, ...existing];
+        localStorage.setItem(notifKey, JSON.stringify(updated));
+        localStorage.setItem('pvpsit_notifications', JSON.stringify(updated));
+        window.dispatchEvent(new Event('pvpsit_notifications_updated'));
+      }
+
       setIsModalOpen(false);
       setNewTicket({ title: '', location: '', priority: 'Medium', assignedTo: 'Unassigned' });
     } catch (error) {

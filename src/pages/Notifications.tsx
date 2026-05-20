@@ -57,7 +57,7 @@ const ITEMS_PER_PAGE = 10;
 const Notifications = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const notificationKey = `pvpsit_notifications_${user?.email || 'guest'}`;
+  const notificationKey = `pvpsit_notifications_${user?.email}_${user?.user_metadata?.role || 'guest'}`;
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [activeCategory, setActiveCategory] = useState<Category>('all');
   const [searchQuery, setSearchQuery] = useState('');
