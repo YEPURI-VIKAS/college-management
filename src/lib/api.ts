@@ -4,6 +4,7 @@ export const api = {
   getHeaders() {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
+      'Bypass-Tunnel-Reminder': 'true',
     };
     const token = localStorage.getItem('pvpsit_auth_token');
     if (token) {
