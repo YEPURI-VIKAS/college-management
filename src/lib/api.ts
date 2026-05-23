@@ -80,27 +80,33 @@ function toTicketRow(body: any) {
 
 function toFacility(row: any) {
   if (!row) return null;
+  // equipment may be null (old Spring Boot rows) or text[] (new rows)
+  let equipment: string[] = [];
+  if (Array.isArray(row.equipment)) equipment = row.equipment;
+  else if (typeof row.equipment === 'string' && row.equipment) equipment = [row.equipment];
   return {
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    capacity: row.capacity,
-    status: row.status,
+    id: String(row.id ?? ''),
+    name: row.name ?? '',
+    type: row.type ?? '',
+    capacity: Number(row.capacity ?? 0),
+    status: row.status ?? 'Available',
     image: row.image ?? '',
-    equipment: row.equipment ?? [],
+    equipment,
   };
 }
 
 function toFacilityRow(body: any) {
-  return {
+  const row: any = {
     id: body.id,
     name: body.name,
     type: body.type,
     capacity: body.capacity,
-    status: body.status,
-    image: body.image ?? '',
-    equipment: body.equipment ?? [],
+    status: body.status ?? 'Available',
+    equipment: Array.isArray(body.equipment) ? body.equipment : [],
   };
+  // Only include image if provided (old tables may not have the column)
+  if (body.image !== undefined) row.image = body.image;
+  return row;
 }
 
 // ── Generic error handler ────────────────────────────────────────────────────
@@ -120,7 +126,7 @@ async function resolveGet(endpoint: string): Promise<any> {
     const { data, error } = await supabase
       .from('bookings')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('id', { ascending: false });
     handleError(error);
     return (data ?? []).map(toBooking);
   }
@@ -129,8 +135,7 @@ async function resolveGet(endpoint: string): Promise<any> {
   if (endpoint === '/facilities') {
     const { data, error } = await supabase
       .from('facilities')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .select('*');
     handleError(error);
     return (data ?? []).map(toFacility);
   }
@@ -140,7 +145,7 @@ async function resolveGet(endpoint: string): Promise<any> {
     const { data, error } = await supabase
       .from('assets')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('id', { ascending: false });
     handleError(error);
     return (data ?? []).map(toAsset);
   }
@@ -150,7 +155,7 @@ async function resolveGet(endpoint: string): Promise<any> {
     const { data, error } = await supabase
       .from('maintenance_tickets')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('id', { ascending: false });
     handleError(error);
     return (data ?? []).map(toTicket);
   }
