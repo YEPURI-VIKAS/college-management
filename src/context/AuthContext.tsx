@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { api } from '../lib/api';
+import { supabase } from '../lib/supabase';
 
 export interface AppUser {
-  id: string | number;
+  id: string;
   email: string;
   user_metadata: {
     role: string;
@@ -21,79 +21,72 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function toAppUser(supabaseUser: any): AppUser | null {
+  if (!supabaseUser) return null;
+  return {
+    id: supabaseUser.id,
+    email: supabaseUser.email ?? '',
+    user_metadata: {
+      role: supabaseUser.user_metadata?.role ?? 'Student',
+      full_name: supabaseUser.user_metadata?.full_name ?? '',
+    },
+  };
+}
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('pvpsit_auth_user');
-    const token = localStorage.getItem('pvpsit_auth_token');
-    if (savedUser && token) {
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch (e) {
-        console.error("Failed to restore user session:", e);
-        localStorage.removeItem('pvpsit_auth_user');
-        localStorage.removeItem('pvpsit_auth_token');
-      }
-    }
-    setLoading(false);
+    // Restore session on mount
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(toAppUser(session?.user ?? null));
+      setLoading(false);
+    });
+
+    // Listen to auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(toAppUser(session?.user ?? null));
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const login = async (email: string, password: string) => {
-    const res = await api.post<any>('/auth/login', { email, password });
-    if (res.token && res.user) {
-      const appUser: AppUser = {
-        id: res.user.id,
-        email: res.user.email,
-        user_metadata: {
-          role: res.user.role,
-          full_name: res.user.fullName
-        }
-      };
-      localStorage.setItem('pvpsit_auth_token', res.token);
-      localStorage.setItem('pvpsit_auth_user', JSON.stringify(appUser));
-      setUser(appUser);
-    } else {
-      throw new Error("Invalid response from server");
-    }
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message);
+    setUser(toAppUser(data.user));
   };
 
   const signup = async (email: string, password: string, fullName: string, role: string) => {
-    const res = await api.post<any>('/auth/signup', { email, password, fullName, role });
-    if (res.token && res.user) {
-      const appUser: AppUser = {
-        id: res.user.id,
-        email: res.user.email,
-        user_metadata: {
-          role: res.user.role,
-          full_name: res.user.fullName
-        }
-      };
-      localStorage.setItem('pvpsit_auth_token', res.token);
-      localStorage.setItem('pvpsit_auth_user', JSON.stringify(appUser));
-      setUser(appUser);
-    } else {
-      throw new Error("Invalid response from server");
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: fullName, role },
+      },
+    });
+    if (error) throw new Error(error.message);
+
+    // Also upsert a profile row so UserManagement page can list users
+    if (data.user) {
+      await supabase.from('profiles').upsert({
+        id: data.user.id,
+        email,
+        full_name: fullName,
+        role,
+      });
+      setUser(toAppUser(data.user));
     }
   };
 
   const signOut = async () => {
-    localStorage.removeItem('pvpsit_auth_token');
-    localStorage.removeItem('pvpsit_auth_user');
+    await supabase.auth.signOut();
     setUser(null);
   };
 
-  const value = {
-    user,
-    loading,
-    login,
-    signup,
-    signOut
-  };
-
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={{ user, loading, login, signup, signOut }}>
       {!loading && children}
     </AuthContext.Provider>
   );

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import { 
   LayoutDashboard, 
   DoorOpen, 
@@ -244,82 +245,54 @@ const Header = () => {
     return () => clearInterval(iv);
   }, [user?.user_metadata?.role]);
 
-  // Student polling: detect booking status changes every 15s
+  // Supabase Realtime - live notifications (replaces WebSocket)
   useEffect(() => {
     if (!user?.email) return;
-    let known: Record<string, string> = {};
-    let isFirst = true;
-
-    const check = async () => {
-      try {
-        const bookings = await api.get<any[]>('/bookings');
-        const email = user.email!.toLowerCase();
-        bookings
-          // Only check bookings owned by this user (via stored mapping)
-          .filter(b => {
-            const ownerEmail = localStorage.getItem(`pvpsit_booking_owner_${b.id}`);
-            return ownerEmail && ownerEmail.toLowerCase() === email;
-          })
-          .forEach(b => {
-            if (!isFirst && known[b.id] && known[b.id] !== b.status) {
-              if (b.status === 'Confirmed') {
-                addNotifRef.current('Booking Confirmed', `Great news! Your booking for ${b.location} has been confirmed.`);
-              } else if (b.status === 'Rejected' || b.status === 'Cancelled') {
-                addNotifRef.current('Booking Rejected', `Your booking for ${b.location} has been rejected by the admin.`);
-              } else if (b.status !== 'Pending') {
-                addNotifRef.current(`Booking ${b.status}`, `Your booking for ${b.location} is now ${b.status.toLowerCase()}.`);
-              }
-            }
-            known[b.id] = b.status;
-          });
-        isFirst = false;
-      } catch (e) {}
-    };
-
-    check();
-    const iv = setInterval(check, 15000);
-    return () => clearInterval(iv);
-  }, [user?.email]);
-
-  useEffect(() => {
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
-    let ws: WebSocket;
-    let retry: ReturnType<typeof setTimeout>;
-    let active = true;
-
-    const connect = () => {
-      if (!active) return;
-      try {
-        ws = new WebSocket(wsUrl);
-        ws.onmessage = (event) => {
-          try {
-            const p = JSON.parse(event.data);
-            if (!p.title || !p.desc) return;
-
-            const userRole = user?.user_metadata?.role; // "Admin" or "Student"
-
-            // Role-targeted: only show to the specified role
-            if (p.role && p.role !== userRole) return;
-
-            // Email-targeted: only show to the specified email
-            if (p.email && p.email !== user?.email) return;
-
-            addNotifRef.current(p.title, p.desc);
-          } catch (_) {}
-        };
-        ws.onerror = () => {};
-        ws.onclose = () => { if (active) retry = setTimeout(connect, 5000); };
-      } catch (_) {}
-    };
-
-    connect();
-    return () => {
-      active = false;
-      clearTimeout(retry);
-      try { ws?.close(); } catch (_) {}
-    };
+    const isAdmin = user?.user_metadata?.role === "Admin";
+    const channelName = "live-" + user.email + "-" + (user?.user_metadata?.role || "guest");
+    const ch = supabase.channel(channelName);
+    if (isAdmin) {
+      ch
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "bookings" }, (payload: any) => {
+          addNotifRef.current("New Booking Request",
+            "New booking at " + payload.new.location + " submitted by " + payload.new.organizer + ".");
+        })
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "maintenance_tickets" }, (payload: any) => {
+          addNotifRef.current("New Maintenance Request",
+            "Issue at " + payload.new.location + " - Priority: " + payload.new.priority + ".");
+        })
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "assets" }, (payload: any) => {
+          addNotifRef.current("New Asset Registered",
+            "Asset " + payload.new.name + " (" + payload.new.category + ") added to inventory.");
+        });
+    } else {
+      ch
+        .on("postgres_changes", {
+          event: "UPDATE", schema: "public", table: "bookings",
+          filter: "organizer_email=eq." + user.email,
+        }, (payload: any) => {
+          const s = payload.new.status;
+          const loc = payload.new.location;
+          if (payload.old.status === s) return;
+          if (s === "Confirmed") {
+            addNotifRef.current("Booking Confirmed", "Your booking at " + loc + " has been confirmed!");
+          } else if (s === "Rejected" || s === "Cancelled") {
+            addNotifRef.current("Booking Rejected", "Your booking at " + loc + " was rejected.");
+          } else {
+            addNotifRef.current("Booking " + s, "Your booking at " + loc + " is now " + s.toLowerCase() + ".");
+          }
+        })
+        .on("postgres_changes", {
+          event: "UPDATE", schema: "public", table: "maintenance_tickets",
+        }, (payload: any) => {
+          if (payload.old.status === payload.new.status) return;
+          addNotifRef.current("Maintenance Update",
+            "Ticket is now " + payload.new.status + ".");
+        });
+    }
+    ch.subscribe();
+    return () => { supabase.removeChannel(ch); };
   }, [user?.email, user?.user_metadata?.role]);
-
   const handleMarkAllAsRead = () => {
     const updated = notifications.map(n => ({ ...n, unread: false }));
     setNotifications(updated);
@@ -655,3 +628,4 @@ const Layout = () => {
 };
 
 export default Layout;
+
