@@ -30,3 +30,7 @@ dist-ssr
 # Local run script containing database credentials
 run-backend.ps1
 
+# Environment variables (Supabase keys - never commit these)
+.env
+.env.local
+.env.production
