@@ -147,6 +147,7 @@ const Facilities = () => {
         time: timeString,
         location: selectedFacility?.name || '',
         organizer: user?.user_metadata?.full_name || 'Staff Member',
+        organizerEmail: user?.email || '',
         status: 'Pending'
       });
 

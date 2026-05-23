@@ -164,6 +164,11 @@ async function resolveGet(endpoint: string): Promise<any> {
     return data ?? [];
   }
 
+  // GET /login-history/* (not stored in Supabase - return empty gracefully)
+  if (endpoint.startsWith('/login-history/')) {
+    return [];
+  }
+
   throw new Error(`Unhandled GET endpoint: ${endpoint}`);
 }
 
@@ -342,6 +347,37 @@ async function resolveDelete(endpoint: string): Promise<any> {
   throw new Error(`Unhandled DELETE endpoint: ${endpoint}`);
 }
 
+async function resolvePut(endpoint: string, body: any): Promise<any> {
+  // PUT /auth/password — change password via Supabase Auth
+  if (endpoint === '/auth/password') {
+    const { error } = await supabase.auth.updateUser({ password: body.newPassword });
+    if (error) throw new Error(error.message);
+    return {};
+  }
+
+  // PUT /auth/profile — update display name via Supabase Auth metadata
+  if (endpoint === '/auth/profile') {
+    const { error } = await supabase.auth.updateUser({
+      data: { full_name: body.fullName },
+    });
+    if (error) throw new Error(error.message);
+    // Also update the profiles table
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from('profiles').upsert({
+        id: user.id,
+        email: user.email,
+        full_name: body.fullName,
+        role: user.user_metadata?.role,
+      });
+    }
+    return {};
+  }
+
+  // Fall back to PATCH for other PUT calls (bookings, facilities, etc.)
+  return resolvePatch(endpoint, body);
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export const api = {
@@ -358,10 +394,11 @@ export const api = {
   },
 
   put<T>(endpoint: string, body: any): Promise<T> {
-    return resolvePatch(endpoint, body) as Promise<T>;
+    return resolvePut(endpoint, body) as Promise<T>;
   },
 
   delete<T>(endpoint: string): Promise<T> {
     return resolveDelete(endpoint) as Promise<T>;
   },
 };
+
